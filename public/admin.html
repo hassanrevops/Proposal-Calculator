@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Admin — KnowledgeCity Proposal Generator</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/styles.css?v=17">
+</head>
+<body>
+<button class="theme-toggle-fab" id="themeToggle" data-icon="moon" aria-label="Switch to dark mode"></button>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-logo"><img src="/img/kc-icon.png" alt=""><span class="logo-text">KnowledgeCity</span></div>
+    <nav>
+      <a href="/index.html"><span class="nav-icon" data-icon="document"></span><span class="nav-label">Standard Proposal</span></a>
+      <a href="/multi-category.html"><span class="nav-icon" data-icon="layers"></span><span class="nav-label">Holistic Calculation (Proposal)</span></a>
+      <a href="/manual.html"><span class="nav-icon" data-icon="edit"></span><span class="nav-label">Manual Proposal</span></a>
+      <a href="/admin" class="active"><span class="nav-icon" data-icon="settings"></span><span class="nav-label">Admin Panel</span></a>
+    </nav>
+    <a class="sidebar-help-link" href="/index.html"><span class="nav-icon" data-icon="arrowLeft"></span><span class="nav-label">Back to public app</span></a>
+    <div class="sidebar-watermark">Powered by KC RevOps</div>
+  </aside>
+  <main class="main">
+    <div class="admin-tabs">
+      <a href="/admin" class="admin-tab active">Pricing configuration</a>
+      <a href="/admin/password" class="admin-tab">Change password</a>
+    </div>
+
+    <p class="hint" style="margin-bottom:1.25rem;">Every value below drives the pricing calculations on all three proposal types (Standard, Holistic, Manual). Changes take effect on the very next proposal generated — no redeploy needed.</p>
+
+    <div class="admin-section">
+      <div class="admin-section-title">Pricing years</div>
+      <div class="admin-section-desc">The per-user base price for each year KnowledgeCity has priced against. Mark one as the Default — that's the year every new proposal actually uses.</div>
+      <table class="admin-table">
+        <thead><tr><th>Year</th><th>Base price / user ($)</th><th>Includes LMS?</th><th>Default</th><th></th></tr></thead>
+        <tbody id="yearTableBody"></tbody>
+      </table>
+      <button type="button" class="btn admin-add-row" id="addYearBtn">+ Add year</button>
+    </div>
+
+    <div class="admin-section">
+      <div class="admin-section-title">License volume discount tiers</div>
+      <div class="admin-section-desc">The more licenses a deal has, the deeper the discount. Each tier's discount applies to the portion of licenses that fall in that range (leave "To" blank for the top, uncapped tier).</div>
+      <table class="admin-table">
+        <thead><tr><th>From (licenses)</th><th>To (licenses)</th><th>Discount vs. previous tier (%)</th><th></th></tr></thead>
+        <tbody id="volumeTiersBody"></tbody>
+      </table>
+      <button type="button" class="btn admin-add-row" id="addTierBtn">+ Add tier</button>
+    </div>
+
+    <div class="admin-section">
+      <div class="admin-section-title">Category tier pricing</div>
+      <div class="admin-section-desc">Each category tier is priced as a percentage of the full "All 5 Categories" price. The display name is what shows up on the proposal's pricing table.</div>
+      <table class="admin-table">
+        <thead><tr><th>Tier key</th><th>Display name</th><th>% of full price</th></tr></thead>
+        <tbody id="categoryWeightsBody"></tbody>
+      </table>
+    </div>
+
+    <div class="admin-section">
+      <div class="admin-section-title">Multi-Year Agreement discounts</div>
+      <div class="admin-section-desc">The discount shown for each multi-year term on the Multi-Year Agreements block of every proposal.</div>
+      <div class="admin-grid">
+        <div class="admin-inline-field"><label>2-Year term (%)</label><input type="number" id="my2yr" step="0.01"></div>
+        <div class="admin-inline-field"><label>3-Year term (%)</label><input type="number" id="my3yr" step="0.01"></div>
+        <div class="admin-inline-field"><label>5-Year term (%)</label><input type="number" id="my5yr" step="0.01"></div>
+      </div>
+    </div>
+
+    <div class="admin-section">
+      <div class="admin-section-title">Other pricing rules</div>
+      <div class="admin-grid">
+        <div class="admin-inline-field"><label>LMS add-on (%)</label><input type="number" id="lmsAddOnPct" step="0.01"></div>
+        <div class="admin-inline-field"><label>Non-profit discount (%)</label><input type="number" id="nonProfitDiscountPct" step="0.01"></div>
+        <div class="admin-inline-field"><label>Small-order license cap</label><input type="number" id="smallOrderLimit" step="1"></div>
+        <div class="admin-inline-field"><label>Small-order flat price / license ($)</label><input type="number" id="smallOrderFlatPrice" step="0.01"></div>
+        <div class="admin-inline-field"><label>Current-year price adjustment (%)</label><input type="number" id="priceAdjustmentBump" step="0.01"></div>
+      </div>
+    </div>
+
+    <div class="form-actions">
+      <button class="btn btn-primary btn-block" id="saveBtn">Save all changes</button>
+    </div>
+    <div id="saveStatus" style="margin-top:0.5rem; text-align:center;"></div>
+  </main>
+</div>
+<script src="/app.js?v=12"></script>
+<script>
+(async function () {
+  var res = await fetch('/admin/config');
+  if (res.status === 401 || res.redirected) { location.href = '/admin/login'; return; }
+  var config = await res.json();
+
+  // ---- Pricing years ----
+  var yearTableBody = document.getElementById('yearTableBody');
+  function addYearRow(year, basePrice, inclLMS, isDefault) {
+    var tr = document.createElement('tr');
+    var radioName = 'defaultYear';
+    tr.innerHTML =
+      '<td><input type="number" class="f-year" step="1" value="' + (year != null ? year : '') + '"></td>' +
+      '<td><input type="number" class="f-basePrice" step="0.01" value="' + (basePrice != null ? basePrice : '') + '"></td>' +
+      '<td style="text-align:center;"><input type="checkbox" class="f-inclLMS"' + (inclLMS ? ' checked' : '') + '></td>' +
+      '<td style="text-align:center;"><input type="radio" name="' + radioName + '" class="f-isDefault"' + (isDefault ? ' checked' : '') + '></td>' +
+      '<td><button type="button" class="admin-row-remove" aria-label="Remove year">' + window.KCIcons.trash + '</button></td>';
+    tr.querySelector('.admin-row-remove').addEventListener('click', function () { tr.remove(); });
+    yearTableBody.appendChild(tr);
+  }
+  Object.keys(config.yearTable).sort().forEach(function (year) {
+    var y = config.yearTable[year];
+    addYearRow(year, y.basePrice, y.inclLMS, Number(year) === Number(config.defaultPricingYear));
+  });
+  document.getElementById('addYearBtn').addEventListener('click', function () { addYearRow('', '', true, false); });
+
+  // ---- Volume discount tiers ----
+  var volumeTiersBody = document.getElementById('volumeTiersBody');
+  function addTierRow(from, to, discountVsPrev) {
+    var tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td><input type="number" class="f-from" step="1" value="' + (from != null ? from : '') + '"></td>' +
+      '<td><input type="number" class="f-to" step="1" placeholder="no limit" value="' + (to != null ? to : '') + '"></td>' +
+      '<td><input type="number" class="f-discount" step="0.01" value="' + (discountVsPrev != null ? Math.round(discountVsPrev * 10000) / 100 : '') + '"></td>' +
+      '<td><button type="button" class="admin-row-remove" aria-label="Remove tier">' + window.KCIcons.trash + '</button></td>';
+    tr.querySelector('.admin-row-remove').addEventListener('click', function () { tr.remove(); });
+    volumeTiersBody.appendChild(tr);
+  }
+  config.volumeTiers.forEach(function (t) { addTierRow(t.from, t.to, t.discountVsPrev); });
+  document.getElementById('addTierBtn').addEventListener('click', function () { addTierRow('', '', ''); });
+
+  // ---- Category tier pricing ----
+  var categoryWeightsBody = document.getElementById('categoryWeightsBody');
+  Object.keys(config.categoryWeights).forEach(function (key) {
+    var tr = document.createElement('tr');
+    tr.setAttribute('data-key', key);
+    tr.innerHTML =
+      '<td>' + key + '</td>' +
+      '<td><input type="text" class="f-displayName" value="' + (config.categoryDisplayNames[key] || '') + '"></td>' +
+      '<td><input type="number" class="f-weight" step="0.01" value="' + Math.round(config.categoryWeights[key] * 10000) / 100 + '"></td>';
+    categoryWeightsBody.appendChild(tr);
+  });
+
+  // ---- Multi-Year discounts ----
+  document.getElementById('my2yr').value = Math.round(config.multiYearDiscounts['2yr'] * 10000) / 100;
+  document.getElementById('my3yr').value = Math.round(config.multiYearDiscounts['3yr'] * 10000) / 100;
+  document.getElementById('my5yr').value = Math.round(config.multiYearDiscounts['5yr'] * 10000) / 100;
+
+  // ---- Other pricing rules ----
+  document.getElementById('lmsAddOnPct').value = Math.round(config.lmsAddOnPct * 10000) / 100;
+  document.getElementById('nonProfitDiscountPct').value = Math.round(config.nonProfitDiscountPct * 10000) / 100;
+  document.getElementById('smallOrderLimit').value = config.smallOrder2023.licenseLimit;
+  document.getElementById('smallOrderFlatPrice').value = Math.round(config.smallOrder2023.flatPricePerLicense * 100) / 100;
+  document.getElementById('priceAdjustmentBump').value = Math.round(config.priceAdjustment2023Bump * 10000) / 100;
+
+  function buildConfigFromForm() {
+    var yearTable = {};
+    var defaultPricingYear = null;
+    Array.from(yearTableBody.children).forEach(function (tr) {
+      var year = Number(tr.querySelector('.f-year').value);
+      if (!year) return;
+      yearTable[year] = {
+        basePrice: Number(tr.querySelector('.f-basePrice').value) || 0,
+        inclLMS: tr.querySelector('.f-inclLMS').checked,
+      };
+      if (tr.querySelector('.f-isDefault').checked) defaultPricingYear = year;
+    });
+    if (defaultPricingYear == null) {
+      var years = Object.keys(yearTable);
+      defaultPricingYear = years.length ? Number(years[years.length - 1]) : config.defaultPricingYear;
+    }
+
+    var volumeTiers = Array.from(volumeTiersBody.children).map(function (tr) {
+      var toVal = tr.querySelector('.f-to').value;
+      return {
+        from: Number(tr.querySelector('.f-from').value) || 0,
+        to: toVal === '' ? null : Number(toVal),
+        discountVsPrev: (Number(tr.querySelector('.f-discount').value) || 0) / 100,
+      };
+    });
+
+    var categoryWeights = {};
+    var categoryDisplayNames = {};
+    Array.from(categoryWeightsBody.children).forEach(function (tr) {
+      var key = tr.getAttribute('data-key');
+      categoryWeights[key] = (Number(tr.querySelector('.f-weight').value) || 0) / 100;
+      categoryDisplayNames[key] = tr.querySelector('.f-displayName').value || key;
+    });
+
+    return {
+      volumeTiers: volumeTiers,
+      yearTable: yearTable,
+      defaultPricingYear: defaultPricingYear,
+      categoryWeights: categoryWeights,
+      categoryDisplayNames: categoryDisplayNames,
+      multiYearDiscounts: {
+        '2yr': (Number(document.getElementById('my2yr').value) || 0) / 100,
+        '3yr': (Number(document.getElementById('my3yr').value) || 0) / 100,
+        '5yr': (Number(document.getElementById('my5yr').value) || 0) / 100,
+      },
+      lmsAddOnPct: (Number(document.getElementById('lmsAddOnPct').value) || 0) / 100,
+      nonProfitDiscountPct: (Number(document.getElementById('nonProfitDiscountPct').value) || 0) / 100,
+      smallOrder2023: {
+        licenseLimit: Number(document.getElementById('smallOrderLimit').value) || 0,
+        flatPricePerLicense: Number(document.getElementById('smallOrderFlatPrice').value) || 0,
+      },
+      priceAdjustment2023Bump: (Number(document.getElementById('priceAdjustmentBump').value) || 0) / 100,
+    };
+  }
+
+  document.getElementById('saveBtn').addEventListener('click', async function () {
+    var status = document.getElementById('saveStatus');
+    try {
+      var newConfig = buildConfigFromForm();
+      var saveRes = await fetch('/admin/config', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newConfig),
+      });
+      if (saveRes.ok) { status.textContent = 'Saved — every proposal type now uses these values.'; status.style.color = '#3fb950'; }
+      else { var err = await saveRes.json(); status.textContent = err.error; status.style.color = '#e2554a'; }
+    } catch (e) {
+      status.textContent = 'Could not save: ' + e.message; status.style.color = '#e2554a';
+    }
+  });
+})();
+</script>
+</body>
+</html>

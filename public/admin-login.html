@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Admin Login — KnowledgeCity Proposal Generator</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/styles.css?v=17">
+<script src="/app.js?v=12" defer></script>
+</head>
+<body>
+<button class="theme-toggle-fab" id="themeToggle" data-icon="moon" aria-label="Switch to dark mode"></button>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-logo"><img src="/img/kc-icon.png" alt=""><span class="logo-text">KnowledgeCity</span></div>
+    <nav>
+      <a href="/index.html"><span class="nav-icon" data-icon="document"></span><span class="nav-label">Standard Proposal</span></a>
+      <a href="/multi-category.html"><span class="nav-icon" data-icon="layers"></span><span class="nav-label">Holistic Calculation (Proposal)</span></a>
+      <a href="/manual.html"><span class="nav-icon" data-icon="edit"></span><span class="nav-label">Manual Proposal</span></a>
+      <a href="/admin" class="active"><span class="nav-icon" data-icon="settings"></span><span class="nav-label">Admin Panel</span></a>
+    </nav>
+    <a class="sidebar-help-link" href="https://share.hsforms.com/2DiwtP86rQPSLpHDkiqlLDwnkjhs" target="_blank" rel="noopener"><span class="nav-icon" data-icon="help"></span><span class="nav-label">Need Help</span></a>
+    <button class="sidebar-collapse-btn" id="collapseBtn"><span class="nav-icon" data-icon="collapseLeft"></span><span class="nav-label">Collapse</span></button>
+    <div class="sidebar-watermark">Powered by KC RevOps</div>
+  </aside>
+
+  <main class="main">
+    <div class="login-card" style="margin-top: 4rem;">
+      <img src="/img/kc-icon.png" alt="" class="login-card-icon">
+      <div class="login-card-brand">KnowledgeCity</div>
+      <form id="loginForm">
+        <div class="field" style="margin-bottom:1.25rem;">
+          <label>Password</label>
+          <input type="password" id="password" required autocomplete="current-password">
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary btn-block">Log in</button>
+        </div>
+        <p id="loginError" style="color:#e2554a; display:none; margin-top:0.75rem; text-align:center;">Incorrect password.</p>
+      </form>
+    </div>
+  </main>
+</div>
+
+<script>
+document.getElementById('loginForm').addEventListener('submit', async function (e) {
+  e.preventDefault();
+  var res = await fetch('/admin/login', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: document.getElementById('password').value }),
+  });
+  if (res.ok) { location.href = '/admin'; }
+  else { document.getElementById('loginError').style.display = 'block'; }
+});
+</script>
+</body>
+</html>

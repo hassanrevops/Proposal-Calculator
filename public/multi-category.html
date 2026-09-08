@@ -1,0 +1,245 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>KnowledgeCity Proposal Generator</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/styles.css?v=17">
+<script src="/preview.js?v=16" defer></script>
+</head>
+<body>
+<button class="theme-toggle-fab" id="themeToggle" data-icon="moon" aria-label="Switch to dark mode"></button>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-logo"><img src="/img/kc-icon.png" alt=""><span class="logo-text">KnowledgeCity</span></div>
+    <nav>
+      <a href="/index.html"><span class="nav-icon" data-icon="document"></span><span class="nav-label">Standard Proposal</span></a>
+      <a href="/multi-category.html" class="active"><span class="nav-icon" data-icon="layers"></span><span class="nav-label">Holistic Calculation (Proposal)</span></a>
+      <a href="/manual.html"><span class="nav-icon" data-icon="edit"></span><span class="nav-label">Manual Proposal</span></a>
+      <a href="/admin"><span class="nav-icon" data-icon="settings"></span><span class="nav-label">Admin Panel</span></a>
+    </nav>
+    <a class="sidebar-help-link" href="https://share.hsforms.com/2DiwtP86rQPSLpHDkiqlLDwnkjhs" target="_blank" rel="noopener"><span class="nav-icon" data-icon="help"></span><span class="nav-label">Need Help</span></a>
+    <button class="sidebar-collapse-btn" id="collapseBtn"><span class="nav-icon" data-icon="collapseLeft"></span><span class="nav-label">Collapse</span></button>
+    <div class="sidebar-watermark">Powered by KC RevOps</div>
+  </aside>
+
+  <main class="main">
+    <div class="hero">
+      <div class="hero-badge">KnowledgeCity</div>
+      <h1>Holistic Proposal</h1>
+      <p>Split one deal across multiple category tiers — the volume discount is computed once against the combined license count, then divided into a line item per tier.</p>
+    </div>
+
+    <div class="content-columns">
+      <div class="form-column">
+        <form id="proposalForm">
+          <div class="section-title">Client</div>
+          <div class="row">
+            <div class="field"><label>Company name</label><input type="text" id="companyName" required></div>
+          </div>
+          <div class="row">
+            <div class="field"><label>Proposal date</label><input type="date" id="proposalDate"></div>
+            <div class="field"><label>Currency</label>
+              <div class="currency-combo" id="currencyCombo">
+                <input type="text" id="currencySearch" placeholder="Search currency..." autocomplete="off">
+                <input type="hidden" id="currencyCode" value="USD">
+                <div class="currency-dropdown"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="section-title">Deal-wide settings</div>
+          <div class="row">
+            <div class="field"><label>Special discount %</label><input type="number" id="specialDiscountPct" min="0" max="99" step="0.01" placeholder="0"></div>
+            <label class="checkbox-row" style="margin-top:1.6rem;"><input type="checkbox" id="nonProfit"> Non-profit (5% discount)</label>
+          </div>
+          <label class="checkbox-row" style="margin-bottom:1rem;"><input type="checkbox" id="includeMultiYearTerms" checked> Include Multi-Year Terms</label>
+          <div class="row">
+            <div class="field"><label>Special note (optional)</label><input type="text" id="specialNote" placeholder="e.g. This offer is valid for a limited time"></div>
+          </div>
+          <div class="hint">Shown as bold text directly below the pricing table, in the preview and the generated deck.</div>
+
+          <div class="section-title">Line items</div>
+          <div id="lineItemsContainer"></div>
+
+          <div class="form-actions">
+            <button type="button" class="btn btn-outline btn-block" id="addLineItemBtn">+ Add line item</button>
+            <button type="submit" class="btn btn-primary btn-block">Generate Proposal</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="preview-column">
+        <div id="previewContainer">
+          <div class="preview-empty-hint">Add a line item with licenses and a category tier to see the pricing slide appear here.</div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<button class="calc-fab" id="calcFab" title="Calculator" data-icon="calc"></button>
+<div class="calc-window" id="calcWindow">
+  <div class="calc-titlebar"><span>Calculator</span><button type="button" class="calc-close" aria-label="Close calculator">✕</button></div>
+  <div class="calc-display">0</div>
+  <div class="calc-keys">
+    <button type="button" class="calc-clear" data-clear>C</button>
+    <button type="button" class="calc-op" data-percent>%</button>
+    <button type="button" class="calc-op" data-op="/">÷</button>
+    <button type="button" class="calc-op" data-op="*">×</button>
+    <button type="button" data-digit="7">7</button>
+    <button type="button" data-digit="8">8</button>
+    <button type="button" data-digit="9">9</button>
+    <button type="button" class="calc-op" data-op="-">−</button>
+    <button type="button" data-digit="4">4</button>
+    <button type="button" data-digit="5">5</button>
+    <button type="button" data-digit="6">6</button>
+    <button type="button" class="calc-op calc-tall" data-op="+">+</button>
+    <button type="button" data-digit="1">1</button>
+    <button type="button" data-digit="2">2</button>
+    <button type="button" data-digit="3">3</button>
+    <button type="button" class="calc-wide" data-digit="0">0</button>
+    <button type="button" data-decimal>.</button>
+    <button type="button" class="calc-equals" data-equals>=</button>
+  </div>
+</div>
+
+<script src="/app.js?v=12"></script>
+<script>
+(function () {
+  'use strict';
+  function currencySymbolFor(code) {
+    var match = (window.KC_CURRENCIES || []).filter(function (c) { return c.code === code; })[0];
+    return match ? match.symbol : '$';
+  }
+  var form = document.getElementById('proposalForm');
+  var container = document.getElementById('lineItemsContainer');
+  var previewContainer = document.getElementById('previewContainer');
+
+  function debounce(fn, wait) {
+    var t;
+    return function () { var a = arguments; clearTimeout(t); t = setTimeout(function () { fn.apply(null, a); }, wait); };
+  }
+
+  function lineItemTemplate() {
+    var div = document.createElement('div');
+    div.className = 'slide-card';
+    div.innerHTML =
+      '<button type="button" class="slide-card-remove remove-line-item" title="Remove this line item" aria-label="Remove this line item">' +
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>' +
+      '</button>' +
+      '<div class="row">' +
+        '<div class="field"><label>Number of licenses</label><input type="number" class="f-licenses" min="1"></div>' +
+        '<div class="field"><label>Category tier</label>' +
+          '<select class="f-categoryTier" required>' +
+            '<option value="" disabled selected>Select category tier</option>' +
+            '<option value="all5">All 5 Categories</option><option value="4cat">4 Categories</option>' +
+            '<option value="3cat">3 Categories</option><option value="2cat">2 Categories</option>' +
+            '<option value="1cat">1 Category</option><option value="1to2courses">1-2 Courses</option>' +
+          '</select>' +
+        '</div>' +
+        '<div class="field"><label>Display label (optional)</label><input type="text" class="f-categoryDisplayLabel" placeholder="e.g. Tech & Safety"></div>' +
+      '</div>';
+    div.querySelector('.remove-line-item').addEventListener('click', function () { div.remove(); scheduleRecalc(); });
+    return div;
+  }
+
+  function wireEvents(el) {
+    el.querySelectorAll('input, select').forEach(function (i) { i.addEventListener('input', scheduleRecalc); i.addEventListener('change', scheduleRecalc); });
+  }
+
+  document.getElementById('addLineItemBtn').addEventListener('click', function () {
+    var el = lineItemTemplate();
+    container.appendChild(el);
+    wireEvents(el);
+    scheduleRecalc();
+  });
+
+  var recalcToken = 0;
+  async function recalcPreview() {
+    var myToken = ++recalcToken;
+    var lineItems = Array.from(container.children).map(function (card) {
+      return {
+        licenseCount: Number(card.querySelector('.f-licenses').value),
+        categoryTier: card.querySelector('.f-categoryTier').value,
+        categoryDisplayLabel: card.querySelector('.f-categoryDisplayLabel').value || undefined,
+      };
+    }).filter(function (li) { return li.licenseCount > 0 && li.categoryTier; });
+
+    var slides = [];
+    if (lineItems.length) {
+      var res = await fetch('/calculate-multi-category', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lineItems: lineItems,
+          specialDiscountPct: Number(document.getElementById('specialDiscountPct').value) || 0,
+          nonProfit: document.getElementById('nonProfit').checked,
+        }),
+      });
+      var data = await res.json();
+      if (myToken !== recalcToken) return;
+
+      var discountPct = Number(document.getElementById('specialDiscountPct').value) || 0;
+      slides.push({
+        rows: data.rows.map(function (r) { return { ...r, licenses: r.licenseCount, specialDiscountPct: discountPct / 100 }; }),
+        combinedSubTotal: data.grandSubTotal,
+        multiYear: data.multiYear,
+        multiYearPct: data.multiYearPct,
+        includeMultiYearTerms: document.getElementById('includeMultiYearTerms').checked,
+        includeDiscountColumn: discountPct > 0,
+        specialNote: document.getElementById('specialNote').value.trim() || undefined,
+      });
+    }
+
+    // The cover slide always renders — only the pricing slide waits on real data.
+    window.KCPreview.render(previewContainer, {
+      companyName: document.getElementById('companyName').value,
+      proposalDate: document.getElementById('proposalDate').value,
+      currencySymbol: currencySymbolFor(document.getElementById('currencyCode').value),
+      slides: slides,
+    });
+  }
+
+  var scheduleRecalc = debounce(recalcPreview, 350);
+  form.addEventListener('input', scheduleRecalc);
+  form.addEventListener('change', scheduleRecalc);
+
+  document.getElementById('addLineItemBtn').click();
+
+  form.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    var lineItems = Array.from(container.children).map(function (card) {
+      return {
+        licenseCount: Number(card.querySelector('.f-licenses').value),
+        categoryTier: card.querySelector('.f-categoryTier').value,
+        categoryDisplayLabel: card.querySelector('.f-categoryDisplayLabel').value.trim() || undefined,
+      };
+    });
+    var res = await fetch('/generate-multi-category', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        companyName: document.getElementById('companyName').value,
+        proposalDate: document.getElementById('proposalDate').value,
+        currencyCode: document.getElementById('currencyCode').value,
+        lineItems: lineItems,
+        specialDiscountPct: Number(document.getElementById('specialDiscountPct').value) || 0,
+        nonProfit: document.getElementById('nonProfit').checked,
+        includeMultiYearTerms: document.getElementById('includeMultiYearTerms').checked,
+        specialNote: document.getElementById('specialNote').value.trim() || undefined,
+      }),
+    });
+    if (!res.ok) {
+      var err = await res.json().catch(function () { return {}; });
+      alert('Could not generate proposal: ' + (err.error || res.statusText));
+      return;
+    }
+    var blob = await res.blob();
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = (document.getElementById('companyName').value || 'proposal') + '.pptx';
+    a.click();
+  });
+})();
+</script>
+</body>
+</html>
