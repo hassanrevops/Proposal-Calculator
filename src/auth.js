@@ -77,4 +77,38 @@ function requireAuthApi(req, res, next) {
   return next();
 }
 
-module.exports = { verifyPassword, changePassword, requireAuth, requireAuthApi, DEV_DEFAULT_PASSWORD };
+// True when a password changed from the admin panel is already saved on disk.
+function hasStoredPassword() {
+  return !!readStoredHash();
+}
+
+// Failed-login limiter: after too many wrong passwords from one address, further
+// attempts are refused for a while. In memory, per process — enough to stop guessing.
+const MAX_FAILED_LOGINS = 10;
+const LOCKOUT_MS = 15 * 60 * 1000;
+const failedLogins = new Map();
+
+function loginLockedFor(ip, now = Date.now()) {
+  const entry = failedLogins.get(ip);
+  if (!entry) return 0;
+  if (now >= entry.resetAt) { failedLogins.delete(ip); return 0; }
+  return entry.count >= MAX_FAILED_LOGINS ? entry.resetAt - now : 0;
+}
+
+function recordFailedLogin(ip, now = Date.now()) {
+  const entry = failedLogins.get(ip);
+  if (!entry || now >= entry.resetAt) failedLogins.set(ip, { count: 1, resetAt: now + LOCKOUT_MS });
+  else entry.count += 1;
+  if (failedLogins.size > 5000) { // never let the table grow without bound
+    for (const [key, v] of failedLogins) if (now >= v.resetAt) failedLogins.delete(key);
+  }
+}
+
+function clearFailedLogins(ip) {
+  failedLogins.delete(ip);
+}
+
+module.exports = {
+  verifyPassword, changePassword, requireAuth, requireAuthApi, DEV_DEFAULT_PASSWORD,
+  hasStoredPassword, loginLockedFor, recordFailedLogin, clearFailedLogins, MAX_FAILED_LOGINS, LOCKOUT_MS,
+};

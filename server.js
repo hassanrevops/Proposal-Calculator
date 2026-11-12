@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const express = require('express');
 const session = require('express-session');
 const path = require('path');
@@ -11,7 +12,11 @@ const {
   buildMultiCategoryProposalNumbers,
 } = require('./src/pricing');
 const { getConfig, saveConfig, validateConfig } = require('./src/config-store');
-const { verifyPassword, changePassword, requireAuth, requireAuthApi } = require('./src/auth');
+const {
+  verifyPassword, changePassword, requireAuth, requireAuthApi,
+  hasStoredPassword, loginLockedFor, recordFailedLogin, clearFailedLogins,
+} = require('./src/auth');
+const { productionProblems, isWritableDir } = require('./src/startup');
 const { generateProposalPptx } = require('./src/pptx-fill');
 const { proposalProductList, proposalLabel } = require('./src/products');
 const { getCatalog, computeDeal } = require('./src/calculator');
@@ -23,12 +28,37 @@ const {
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const isProduction = process.env.NODE_ENV === 'production';
+
+app.disable('x-powered-by');
+// Behind a load balancer / reverse proxy, trust its X-Forwarded-* headers so the
+// secure-cookie check and each visitor's address are read correctly.
+if (isProduction) app.set('trust proxy', 1);
+
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Referrer-Policy', 'same-origin');
+  next();
+});
 
 app.use(express.json());
+
+// For load balancers and container health checks.
+app.get('/healthz', (req, res) => res.json({ status: 'ok' }));
+
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'dev-only-secret-change-me',
+  // Production refuses to start without SESSION_SECRET (see the check at the bottom).
+  // In development a random per-run secret is used, so no secret is ever hardcoded.
+  secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
   resave: false,
   saveUninitialized: false,
+  cookie: {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: isProduction ? 'auto' : false, // 'auto' = secure whenever the request came in over HTTPS
+    maxAge: 8 * 60 * 60 * 1000,
+  },
 }));
 
 // Visiting any public proposal page immediately ends an admin session — an admin
@@ -312,11 +342,18 @@ app.get('/admin/login', (req, res) => {
 });
 
 app.post('/admin/login', (req, res) => {
+  const locked = loginLockedFor(req.ip);
+  if (locked > 0) {
+    res.setHeader('Retry-After', Math.ceil(locked / 1000));
+    return res.status(429).json({ ok: false, error: `Too many incorrect attempts. Try again in ${Math.ceil(locked / 60000)} minute(s).` });
+  }
   const { password } = req.body;
   if (verifyPassword(password)) {
+    clearFailedLogins(req.ip);
     req.session.authenticated = true;
     return res.json({ ok: true });
   }
+  recordFailedLogin(req.ip);
   res.status(401).json({ ok: false, error: 'Incorrect password' });
 });
 
@@ -367,9 +404,27 @@ app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
 });
 
 if (require.main === module) {
-  app.listen(PORT, () => {
-    console.log(`Proposal app listening on http://localhost:${PORT}`);
+  if (isProduction) {
+    const dataDir = process.env.DATA_DIR;
+    const problems = productionProblems(process.env, {
+      hasStoredPassword: hasStoredPassword(),
+      canWriteDataDir: dataDir ? isWritableDir(dataDir) : true,
+    });
+    if (problems.length) {
+      console.error('QuoteHub cannot start in production:\n - ' + problems.join('\n - '));
+      process.exit(1);
+    }
+  }
+  const server = app.listen(PORT, () => {
+    console.log(`QuoteHub listening on port ${PORT}${isProduction ? ' (production)' : ''}`);
   });
+  // `docker stop` / orchestrator shutdowns: finish in-flight requests, then exit.
+  for (const signal of ['SIGTERM', 'SIGINT']) {
+    process.on(signal, () => {
+      server.close(() => process.exit(0));
+      setTimeout(() => process.exit(0), 5000).unref();
+    });
+  }
 }
 
 module.exports = app;

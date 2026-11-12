@@ -1,7 +1,7 @@
 {
   "name": "proposal-app",
   "version": "1.0.0",
-  "description": "",
+  "description": "KnowledgeCity QuoteHub: proposal generator and KC Pricing Calculator",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -14,5 +14,9 @@
     "express": "^4.19.2",
     "jszip": "^3.10.1",
     "express-session": "^1.18.0"
-  }
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "private": true
 }
