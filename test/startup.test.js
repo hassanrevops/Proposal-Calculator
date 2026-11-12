@@ -70,3 +70,42 @@ test('login lockout: locks after the limit, expires, and a success clears it', (
   clearFailedLogins(ip);
   assert.equal(loginLockedFor(ip, t0 + LOCKOUT_MS * 3 + 50), 0, 'success clears the count');
 });
+
+const { isPseudoFsPath, resolveThroughSymlinks } = require('../src/startup');
+
+test('paths under /proc, /sys and /dev are recognised as pseudo-filesystems, real folders are not', () => {
+  for (const p of ['/proc', '/proc/self/fd/0', '/proc/sys/kernel', '/sys/kernel', '/dev', '/dev/shm/quotehub']) assert.equal(isPseudoFsPath(p), true, p);
+  for (const p of ['/data', '/var/lib/quotehub', '/process/data', '/procedures', '/system', '/device', '/mnt/proc', '/home/app/dev']) assert.equal(isPseudoFsPath(p), false, p);
+});
+
+test('production start-up refuses a DATA_DIR on a pseudo-filesystem with its own message', () => {
+  const problems = productionProblems({ ...good, DATA_DIR: '/proc/self/fd' }, { dataDirIsPseudo: true });
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /\/proc, \/sys or \/dev, which are not real disks/);
+  assert.deepEqual(productionProblems(good, { dataDirIsPseudo: false }), []);
+});
+
+test('the write probe never opens an existing file and leaves no trace', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kc-probe-'));
+  const probe = path.join(dir, `.write-test-${process.pid}`);
+  fs.writeFileSync(probe, 'someone else\'s data');
+  assert.equal(isWritableDir(dir), false, 'an existing file with the probe name is not overwritten');
+  assert.equal(fs.readFileSync(probe, 'utf8'), 'someone else\'s data');
+  fs.unlinkSync(probe);
+  assert.equal(isWritableDir(dir), true);
+  assert.deepEqual(fs.readdirSync(dir), [], 'the probe file is cleaned up');
+});
+
+test('a folder that does not exist yet is resolved through its nearest existing parent', () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'kc-resolve-'));
+  const resolved = resolveThroughSymlinks(path.join(base, 'new', 'deeper'));
+  assert.equal(resolved, path.join(fs.realpathSync(base), 'new', 'deeper'));
+});
+
+test('a link that points at a real folder resolves to the real folder', () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'kc-link-'));
+  const real = path.join(base, 'real'); fs.mkdirSync(real);
+  const link = path.join(base, 'link');
+  try { fs.symlinkSync(real, link, 'junction'); } catch (e) { return; } // no permission to link on this machine
+  assert.equal(resolveThroughSymlinks(path.join(link, 'data')), path.join(fs.realpathSync(real), 'data'));
+});

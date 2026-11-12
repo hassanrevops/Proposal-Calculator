@@ -16,7 +16,7 @@ const {
   verifyPassword, changePassword, requireAuth, requireAuthApi,
   hasStoredPassword, loginLockedFor, recordFailedLogin, clearFailedLogins,
 } = require('./src/auth');
-const { productionProblems, isWritableDir } = require('./src/startup');
+const { productionProblems, isWritableDir, isPseudoFsDir } = require('./src/startup');
 const { generateProposalPptx } = require('./src/pptx-fill');
 const { proposalProductList, proposalLabel } = require('./src/products');
 const { getCatalog, computeDeal } = require('./src/calculator');
@@ -406,9 +406,12 @@ app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
 if (require.main === module) {
   if (isProduction) {
     const dataDir = process.env.DATA_DIR;
+    // Check for a pseudo-filesystem path first, so nothing is ever written there.
+    const dataDirIsPseudo = dataDir ? isPseudoFsDir(dataDir) : false;
     const problems = productionProblems(process.env, {
-      hasStoredPassword: hasStoredPassword(),
-      canWriteDataDir: dataDir ? isWritableDir(dataDir) : true,
+      hasStoredPassword: dataDirIsPseudo ? false : hasStoredPassword(),
+      canWriteDataDir: dataDir && !dataDirIsPseudo ? isWritableDir(dataDir) : true,
+      dataDirIsPseudo,
     });
     if (problems.length) {
       console.error('QuoteHub cannot start in production:\n - ' + problems.join('\n - '));
