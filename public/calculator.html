@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>KC Pricing Calculator — KnowledgeCity QuoteHub</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/png" href="/img/kc-icon.png">
+<link rel="stylesheet" href="/styles.css?v=28">
+</head>
+<body>
+<button class="theme-toggle-fab" id="themeToggle" data-icon="moon" aria-label="Switch to dark mode"></button>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar" data-variant="public" data-nav="calculator"></aside>
+
+  <main class="main" data-footer="confidential">
+    <div class="hero">
+      <div class="hero-badge">KnowledgeCity</div>
+      <h1>KC Pricing Calculator</h1>
+      <p>One client, whole organization — the full KC product suite in one quote.</p>
+    </div>
+
+    <div class="calc-actions">
+      <button type="button" class="btn btn-outline btn-sm" id="btnPrint">Print / Save PDF</button>
+      <button type="button" class="btn btn-outline btn-sm" id="btnReset">Reset</button>
+    </div>
+
+    <div class="content-columns calc-columns">
+      <div class="form-column">
+        <div class="panel">
+          <div class="panel-title"><span>Deal setup</span><span class="muted" id="refBadge"></span></div>
+          <div class="row">
+            <div class="field">
+              <label>Organization headcount <span class="muted">(shared)</span></label>
+              <input type="number" id="headcount" min="0" step="1" autocomplete="off">
+            </div>
+            <div class="field">
+              <label>Non-profit discount <span class="muted">(LMS only, %)</span></label>
+              <input type="number" id="nonprofit" min="0" max="100" step="1" autocomplete="off">
+            </div>
+          </div>
+          <div class="field">
+            <label>Contract length <span class="muted">(drives the multi-year discount)</span></label>
+            <div class="seg" id="segYears"></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-title"><span>Products</span><span class="muted">coverage &amp; discounts</span></div>
+          <div id="productList"></div>
+          <div class="calc-note">
+            <p>Each product's licenses box follows the headcount above until you type a different number into it (clear it to follow the headcount again). Every product starts switched off — switch on the ones in the deal. Products under a free-tier cap are $0.
+            <b>KC Map</b> is a flat annual fee by company-size band (not per employee). <b>KC Talent</b> is priced per person assessed per year, so its count is people assessed, not headcount.</p>
+            <p><b>Discounts per product compound:</b> <b>Multi-year</b> (a % for 2/3/5-year terms, editable) is taken off first, then <b>Offer</b> (a 1-year %) comes off that reduced price — so 30% then 30% is 51% off, not 60%. <b>Special discount</b> is a flat $ amount off the yearly price after that.</p>
+            <p><b>KC LMS + Library</b> splits 60% Library / 40% LMS platform (admin-editable). <b>Scope</b> sells LMS + Content, Content only, or LMS only; the content tier applies to the Library portion only.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="preview-column">
+        <div class="panel">
+          <div class="panel-title"><span>Deal summary</span><span class="muted" id="termBadge"></span></div>
+          <div class="sum-row"><span class="k">Bundle annual list price</span><span class="v" id="sumList"></span></div>
+          <div class="sum-row accent"><span class="k">Bundle annual price <span class="muted">(after discounts)</span></span><span class="v" id="sumAnnual"></span></div>
+          <div class="sum-row"><span class="k">Total contract value <span class="muted" id="tcvYears"></span></span><span class="v" id="sumTCV"></span></div>
+          <div class="sum-row"><span class="k">Blended $/employee/yr</span><span class="v" id="sumBlend"></span></div>
+          <div class="sum-row big"><span class="k">Year-1 cash</span><span class="v" id="sumCash"></span></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-title"><span>Line items</span><span class="muted" id="tblNote"></span></div>
+          <div class="table-scroll">
+            <table class="res">
+              <thead><tr><th>Product</th><th>Covered</th><th>$/unit/yr</th><th>List/yr</th><th>Discount</th><th>Price/yr</th><th>% of total</th><th>TCV</th></tr></thead>
+              <tbody id="resBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="/app.js?v=27"></script>
+<script src="/calculator.js?v=8"></script>
+</body>
+</html>

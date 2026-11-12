@@ -1,5 +1,7 @@
 'use strict';
 
+const { DEFAULT_PRODUCTS, resolveProposalProduct, priceProposalRow } = require('./products');
+
 // Section 3 constants — transcribed exactly from the implementation brief. This is
 // only the SEED/default config, used to bootstrap the admin-editable config store
 // on first run (see src/config-store.js) and as a fallback if the store is empty.
@@ -66,6 +68,13 @@ const DEFAULT_CONFIG = {
   nonProfitDiscountPct: 0.05,
   smallOrder2023: { licenseLimit: 20, flatPricePerLicense: 349.99 * (300 / 429) },
   priceAdjustment2023Bump: 0.20,
+
+  // Unified pricing calculator: how the combined LMS + Library price splits between
+  // the content Library and the LMS platform (the category tier only scales the Library part).
+  lmsSplit: { library: 0.60, lms: 0.40 },
+
+  // Product catalog for the calculator and the proposal generator's Products dropdown.
+  products: DEFAULT_PRODUCTS,
 };
 
 // Kept for reference/back-office use only — NOT used for the proposal's Multi-Year
@@ -103,6 +112,12 @@ function computeVolumeIndex(licenses, config) {
  * per-category weights afterward, without duplicating the volume/year/non-profit math.
  */
 function computeAll5CategoryBasePrice(licenses, pricingYear, nonProfit, priceAdjustmentPct, config) {
+  return computeAll5CategoryBasePriceWithPct(licenses, pricingYear, nonProfit ? config.nonProfitDiscountPct : 0, priceAdjustmentPct, config);
+}
+
+// Same price, but the non-profit discount is passed as a 0-1 fraction (the unified
+// calculator lets the rep type any non-profit %, not just the fixed proposal rate).
+function computeAll5CategoryBasePriceWithPct(licenses, pricingYear, nonProfitFraction, priceAdjustmentPct, config) {
   let solutionPrice;
 
   if (pricingYear === 2023 && licenses <= config.smallOrder2023.licenseLimit) {
@@ -111,7 +126,7 @@ function computeAll5CategoryBasePrice(licenses, pricingYear, nonProfit, priceAdj
     const volumeIndex = computeVolumeIndex(licenses, config);
     const basePrice = config.yearTable[pricingYear].basePrice;
     const adjFactor = 1 + priceAdjustmentPct + (pricingYear === 2023 ? config.priceAdjustment2023Bump : 0);
-    const nonProfitFactor = nonProfit ? (1 - config.nonProfitDiscountPct) : 1.0;
+    const nonProfitFactor = 1 - nonProfitFraction;
     solutionPrice = volumeIndex * basePrice * adjFactor * nonProfitFactor;
   }
 
@@ -120,11 +135,23 @@ function computeAll5CategoryBasePrice(licenses, pricingYear, nonProfit, priceAdj
 }
 
 /**
+ * What share of the "All 5 Categories" price a category tier actually costs. The
+ * combined LMS + Library price is split (60% Library / 40% LMS platform by default,
+ * admin-editable); the tier's weight only scales the Library share, while the LMS
+ * platform share is always full price. This is the unified pricing calculator's rule,
+ * so proposals and the calculator quote the same number. (A split of 100% Library /
+ * 0% LMS reproduces the older "weight x full price" behavior.)
+ */
+function lmsTierMultiplier(categoryTier, config) {
+  return config.lmsSplit.library * config.categoryWeights[categoryTier] + config.lmsSplit.lms;
+}
+
+/**
  * Section 4: computeCostPerLicense_1Year(...)
  * Returns the "All 5 Categories, 1-Year, per license" price weighted down to the requested category tier.
  */
 function computeCostPerLicense_1Year(licenses, categoryTier, pricingYear, nonProfit, priceAdjustmentPct, config) {
-  return computeAll5CategoryBasePrice(licenses, pricingYear, nonProfit, priceAdjustmentPct, config) * config.categoryWeights[categoryTier];
+  return computeAll5CategoryBasePrice(licenses, pricingYear, nonProfit, priceAdjustmentPct, config) * lmsTierMultiplier(categoryTier, config);
 }
 
 function round2(n) {
@@ -141,7 +168,45 @@ function round2(n) {
  * the figures are actually built by hand off a calculator display, one rounded line at a
  * time, rather than carrying hidden fractional cents through the whole chain.
  */
+function buildProductRowNumbers(target, licenses, specialDiscountPct) {
+  const priced = priceProposalRow(target, licenses);
+  let costPerUser1Yr;
+  let afterDiscountCostPerUser;
+  let subTotal;
+  if (priced.flat) {
+    // Fixed annual fee: the per-user figure is only an effective rate for display.
+    costPerUser1Yr = licenses > 0 ? round2(priced.annualList / licenses) : 0;
+    afterDiscountCostPerUser = round2(costPerUser1Yr * (1 - specialDiscountPct));
+    subTotal = round2(priced.annualList * (1 - specialDiscountPct));
+  } else {
+    costPerUser1Yr = round2(priced.perUnit);
+    afterDiscountCostPerUser = round2(costPerUser1Yr * (1 - specialDiscountPct));
+    subTotal = round2(afterDiscountCostPerUser * licenses);
+  }
+  return { costPerUser1Yr, afterDiscountCostPerUser, subTotal };
+}
+
+function requireProposalProduct(id, config) {
+  const target = resolveProposalProduct(id, config);
+  if (!target) {
+    const err = new Error(`Unknown product "${id}"`);
+    err.status = 400;
+    throw err;
+  }
+  return target;
+}
+
 function buildProposalNumbers(inputs, config) {
+  const target = requireProposalProduct(inputs.categoryTier, config);
+  if (target.kind === 'product') {
+    const row = buildProductRowNumbers(target, inputs.licenses, inputs.specialDiscountPct);
+    const multiYear = {};
+    for (const [term, pct] of Object.entries(config.multiYearDiscounts)) {
+      multiYear[term] = round2(row.subTotal * (1 - pct));
+    }
+    return { ...row, multiYear };
+  }
+
   const costPerUser1YrRaw = computeCostPerLicense_1Year(
     inputs.licenses,
     inputs.categoryTier,
@@ -210,11 +275,25 @@ function buildSlideNumbers({ rows, pricingYear, nonProfit, specialDiscountPct },
  * equals its displayed Sub-Total exactly, with no residual fractional cents.
  */
 function buildMultiCategoryProposalNumbers({ lineItems, pricingYear, nonProfit, priceAdjustmentPct, specialDiscountPct }, config) {
+  const targets = lineItems.map((li) => requireProposalProduct(li.categoryTier, config));
   const totalLicenses = lineItems.reduce((sum, li) => sum + li.licenseCount, 0);
-  const all5CategoryPricePerLicense = round2(computeAll5CategoryBasePrice(totalLicenses, pricingYear, nonProfit, priceAdjustmentPct, config));
+  // Only LMS category tiers share a combined-volume price; every other product is
+  // priced on its own license count by its own band table.
+  const lmsLicenses = lineItems.reduce((sum, li, i) => sum + (targets[i].kind === 'lms' ? li.licenseCount : 0), 0);
+  const all5CategoryPricePerLicense = lmsLicenses > 0
+    ? round2(computeAll5CategoryBasePrice(lmsLicenses, pricingYear, nonProfit, priceAdjustmentPct, config))
+    : 0;
 
-  const rows = lineItems.map((li) => {
-    const costPerUser1Yr = round2(all5CategoryPricePerLicense * config.categoryWeights[li.categoryTier]);
+  const rows = lineItems.map((li, i) => {
+    if (targets[i].kind === 'product') {
+      return {
+        licenseCount: li.licenseCount,
+        categoryTier: li.categoryTier,
+        categoryDisplayLabel: li.categoryDisplayLabel,
+        ...buildProductRowNumbers(targets[i], li.licenseCount, specialDiscountPct),
+      };
+    }
+    const costPerUser1Yr = round2(all5CategoryPricePerLicense * lmsTierMultiplier(li.categoryTier, config));
     const afterDiscountCostPerUser = round2(costPerUser1Yr * (1 - specialDiscountPct));
     const subTotal = round2(afterDiscountCostPerUser * li.licenseCount);
     return {
@@ -242,7 +321,9 @@ module.exports = {
   termDiscounts_calculatorNative,
   computeVolumeIndex,
   computeAll5CategoryBasePrice,
+  computeAll5CategoryBasePriceWithPct,
   computeCostPerLicense_1Year,
+  lmsTierMultiplier,
   buildProposalNumbers,
   buildSlideNumbers,
   buildMultiCategoryProposalNumbers,

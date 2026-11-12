@@ -371,3 +371,137 @@ button, .btn {
 .ppt-my-bullet::before { content: "•"; position: absolute; left: 0; }
 .ppt-my-bullet-last { margin-bottom: 0; }
 .ppt-special-note { font-size: 1.3cqw; font-weight: 700; color: #000; text-align: left; }
+
+/* ---------- Sidebar: app name + "Proposal Generator" group ---------- */
+.logo-text { display: flex; flex-direction: column; line-height: 1.15; }
+.sidebar.collapsed:hover .logo-text { display: flex; }
+/* Same font, size and style as "KnowledgeCity" above it: together they read "KnowledgeCity QuoteHub". */
+.logo-sub { font: inherit; color: inherit; }
+.nav-group { display: flex; flex-direction: column; gap: 0.3rem; }
+.nav-group-head {
+  display: flex; align-items: center; gap: 0.75rem; width: 100%; text-align: left;
+  padding: 0.65rem 0.75rem; border-radius: 10px; border: none; border-left: 3px solid transparent;
+  background: transparent; color: var(--kc-sidebar-text); font-size: 0.86rem; font-weight: 500; cursor: pointer;
+}
+.nav-group-head:hover { background: var(--kc-orange-light); color: var(--kc-orange); }
+.nav-group-head .nav-label { flex: 1; }
+.nav-chevron { width: 1rem; height: 1rem; display: flex; transition: transform 0.15s ease; }
+.nav-chevron svg { width: 100%; height: 100%; }
+.nav-group.open .nav-chevron { transform: rotate(180deg); }
+.nav-sub { display: none; flex-direction: column; gap: 0.3rem; margin-left: 1.1rem; padding-left: 0.4rem; border-left: 1px solid var(--kc-sidebar-border); }
+.nav-group.open .nav-sub { display: flex; }
+/* Icons-only sidebar: the group collapses to ONE icon (its pages are hidden). Hovering
+   peeks the sidebar open, and the group's pages show again if it's expanded. */
+.sidebar.collapsed .nav-group-head { justify-content: center; padding: 0.65rem; border-left: none; }
+.sidebar.collapsed .nav-chevron { display: none; }
+.sidebar.collapsed:not(:hover) .nav-sub { display: none; }
+.sidebar.collapsed .nav-group.has-active .nav-group-head { background: var(--kc-orange-light); color: var(--kc-orange); }
+.sidebar.collapsed:hover .nav-group-head { justify-content: flex-start; padding: 0.65rem 0.75rem; border-left: 3px solid transparent; }
+.sidebar.collapsed:hover .nav-chevron { display: flex; }
+.sidebar.collapsed:hover .nav-group.open .nav-sub { margin-left: 1.1rem; padding-left: 0.4rem; border-left: 1px solid var(--kc-sidebar-border); }
+
+/* ---------- KC Pricing Calculator ---------- */
+.panel { background: var(--kc-card); border: 1px solid var(--kc-border); border-radius: 14px; padding: 1.5rem 1.75rem; margin-bottom: 1.5rem; }
+.calc-actions { display: flex; justify-content: flex-end; gap: 0.6rem; margin-bottom: 1rem; }
+.btn-sm { padding: 0.4rem 0.9rem; font-size: 0.82rem; }
+.seg { display: flex; gap: 0.4rem; background: var(--kc-bg); border: 1px solid var(--kc-border); border-radius: 10px; padding: 0.25rem; }
+.seg button { flex: 1; border: none; background: transparent; color: var(--kc-text-muted); padding: 0.5rem 0.4rem; border-radius: 8px; font-weight: 600; font-size: 0.85rem; }
+.seg button.on { background: var(--kc-orange); color: #fff; }
+.seg button:not(.on):hover { color: var(--kc-orange); }
+
+.prod-card { border: 1px solid var(--kc-border); border-radius: 12px; padding: 1rem 1.15rem; margin-bottom: 0.9rem; background: var(--kc-bg); }
+.prod-card.off { opacity: 0.6; }
+.prod-head { display: flex; align-items: center; gap: 0.75rem; }
+.prod-ico { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; color: #fff; font-weight: 800; font-size: 0.78rem; flex: 0 0 34px; }
+.prod-name { font-weight: 700; font-size: 0.95rem; }
+.prod-desc { font-size: 0.76rem; color: var(--kc-text-muted); margin-top: 1px; }
+.tgl { margin-left: auto; cursor: pointer; flex: 0 0 auto; }
+.tgl .switch { display: inline-block; width: 40px; height: 23px; border-radius: 999px; background: var(--kc-input-border); position: relative; transition: 0.16s; vertical-align: middle; }
+.tgl .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 19px; height: 19px; border-radius: 50%; background: #fff; transition: 0.16s; box-shadow: 0 1px 2px rgba(0,0,0,0.3); }
+.tgl.on .switch { background: var(--kc-orange); }
+.tgl.on .switch::after { transform: translateX(17px); }
+.prod-body { margin-top: 0.9rem; }
+.prod-body .row { margin-bottom: 0.8rem; }
+.minilab { font-size: 0.7rem; color: var(--kc-text-muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700; margin: 0.4rem 0 0.5rem; }
+.dgrid { display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
+.dfield small { display: block; font-size: 0.74rem; color: var(--kc-text-muted); font-weight: 600; margin-bottom: 0.3rem; }
+.dfield .ip { position: relative; }
+.dfield .ip input { width: 100%; padding-right: 1.6rem; }
+.dfield .ip .sfx, .dfield .ip .pfx { position: absolute; top: 50%; transform: translateY(-50%); color: var(--kc-text-muted); font-size: 0.85rem; pointer-events: none; }
+.dfield .ip .sfx { right: 0.7rem; }
+.dfield .ip .pfx { left: 0.7rem; }
+.dfield.dollar .ip input { padding-left: 1.4rem; padding-right: 0.6rem; }
+.readout { margin-top: 0.8rem; border-top: 1px dashed var(--kc-border); padding-top: 0.7rem; display: flex; flex-wrap: wrap; gap: 0.6rem 1.4rem; font-size: 0.85rem; align-items: center; }
+.readout .kv small { display: block; color: var(--kc-text-muted); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.readout .kv b { font-weight: 700; font-size: 0.9rem; }
+.disc { color: #3fb950; }
+.tag { font-size: 0.68rem; font-weight: 700; padding: 0.15rem 0.6rem; border-radius: 999px; letter-spacing: 0.02em; }
+.tag.free { background: rgba(63,185,80,0.15); color: #3fb950; }
+.tag.custom { background: var(--kc-orange-light); color: var(--kc-orange); }
+.muted { color: var(--kc-text-muted); font-weight: 500; }
+
+.sum-row { display: flex; justify-content: space-between; align-items: baseline; padding: 0.7rem 0; border-top: 1px solid var(--kc-border); font-size: 0.92rem; }
+.sum-row:first-of-type { border-top: none; }
+.sum-row .k { color: var(--kc-text-muted); }
+.sum-row .k .muted { font-weight: 400; font-size: 0.85em; }
+.sum-row .v { font-weight: 700; font-variant-numeric: tabular-nums; }
+.sum-row.accent .v { color: var(--kc-orange); font-size: 1.1rem; }
+.sum-row.big { margin-top: 0.6rem; padding: 0.95rem 1.1rem; background: linear-gradient(120deg, var(--kc-orange), var(--kc-orange-dark)); border-radius: 12px; border: none; color: #fff; }
+.sum-row.big .k { color: #fff; font-weight: 700; font-size: 1.1rem; }
+.sum-row.big .v { font-size: 1.6rem; }
+.strike { color: var(--kc-text-muted); text-decoration: line-through; font-weight: 500; font-size: 0.8rem; margin-right: 0.5rem; }
+.panel-title { color: var(--kc-orange); text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.8rem; font-weight: 700; margin: 0 0 0.75rem; display: flex; justify-content: space-between; gap: 1rem; }
+.panel-title .muted { text-transform: none; letter-spacing: 0; font-weight: 500; }
+.table-scroll { overflow-x: auto; }
+table.res { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+table.res th, table.res td { padding: 0.55rem 0.28rem; text-align: right; border-bottom: 1px solid var(--kc-border); font-variant-numeric: tabular-nums; white-space: nowrap; }
+table.res th { white-space: normal; line-height: 1.25; vertical-align: bottom; }
+table.res td:first-child { white-space: normal; min-width: 6rem; }
+table.res th { color: var(--kc-text-muted); font-weight: 700; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; }
+table.res td:first-child, table.res th:first-child { text-align: left; }
+table.res tr.total td { border-top: 2px solid var(--kc-border); border-bottom: none; font-weight: 700; padding-top: 0.7rem; }
+table.res tr.subrow td { color: var(--kc-text-muted); font-size: 0.76rem; padding-top: 0.3rem; padding-bottom: 0.3rem; }
+table.res tr.subrow td:first-child { padding-left: 1.3rem; }
+table.res .pdot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 0.45rem; vertical-align: middle; }
+.wbar { height: 5px; border-radius: 3px; background: var(--kc-border); margin-top: 3px; overflow: hidden; min-width: 40px; }
+.wbar > span { display: block; height: 100%; border-radius: 3px; }
+.calc-note { font-size: 0.76rem; color: var(--kc-text-muted); line-height: 1.55; margin-top: 0.8rem; }
+.calc-note p { margin: 0 0 0.65rem; }
+.calc-note p:last-child { margin-bottom: 0; }
+.app-footer { display: flex; justify-content: center; margin-top: 2.5rem; padding-bottom: 0.5rem; clear: both; }
+.app-footer .pill { border: 1px solid var(--kc-border); border-radius: 999px; padding: 0.4rem 1.1rem; font-size: 0.75rem; color: var(--kc-text-muted); text-align: center; }
+@media print {
+  .sidebar, .theme-toggle-fab, .calc-actions, .calc-fab, .calc-window { display: none !important; }
+  body { background: #fff; color: #000; }
+  .main { padding: 0; }
+  .content-columns { flex-direction: column; }
+  .form-column, .preview-column { max-width: 100%; position: static; }
+  .panel { break-inside: avoid; }
+}
+
+/* ---------- Admin: per-product boxes ---------- */
+details.admin-product { background: var(--kc-card); border: 1px solid var(--kc-border); border-radius: 14px; margin-bottom: 1rem; }
+details.admin-product > summary { cursor: pointer; padding: 1rem 1.4rem; font-weight: 700; display: flex; align-items: center; gap: 0.75rem; list-style: none; }
+details.admin-product > summary::-webkit-details-marker { display: none; }
+details.admin-product[open] > summary { border-bottom: 1px solid var(--kc-border); }
+details.admin-product .admin-product-body { padding: 1.25rem 1.4rem 1.4rem; }
+.admin-product-state { margin-left: auto; font-size: 0.75rem; font-weight: 600; color: var(--kc-text-muted); }
+
+.calc-columns .form-column { flex: 1 1 42%; max-width: 42%; }
+.calc-columns .preview-column { flex: 1 1 58%; max-width: 58%; }
+@media (max-width: 1150px) { .calc-columns .form-column, .calc-columns .preview-column { max-width: 100%; flex: 1 1 auto; } }
+
+/* "Back to public app" sits right under the last admin page, set apart by a divider. */
+.sidebar nav a.nav-separated { margin-top: 0.6rem; border-top: 1px solid var(--kc-sidebar-border); border-radius: 0 0 10px 10px; padding-top: 0.85rem; }
+
+.preview-notice { background: rgba(226, 85, 74, 0.12); border: 1px solid #e2554a; color: #e2554a; border-radius: 10px; padding: 0.6rem 0.9rem; font-size: 0.85rem; font-weight: 600; margin-bottom: 1rem; }
+
+/* ---------- Small screens ---------- */
+.admin-section { overflow-x: auto; }
+@media (max-width: 700px) {
+  .main { padding: 4.25rem 1rem 3rem; }
+  .hero { padding: 1.25rem 1rem; }
+  .hero h1 { font-size: 1.4rem; }
+  form, .panel { padding: 1.1rem 1rem; }
+  .login-card { max-width: 100%; }
+}

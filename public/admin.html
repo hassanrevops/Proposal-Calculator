@@ -2,31 +2,18 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Admin — KnowledgeCity Proposal Generator</title>
+<title>Admin — KnowledgeCity QuoteHub</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="/styles.css?v=17">
+<link rel="icon" type="image/png" href="/img/kc-icon.png">
+<link rel="stylesheet" href="/styles.css?v=28">
 </head>
 <body>
 <button class="theme-toggle-fab" id="themeToggle" data-icon="moon" aria-label="Switch to dark mode"></button>
 <div class="app-shell">
-  <aside class="sidebar" id="sidebar">
-    <div class="sidebar-logo"><img src="/img/kc-icon.png" alt=""><span class="logo-text">KnowledgeCity</span></div>
-    <nav>
-      <a href="/index.html"><span class="nav-icon" data-icon="document"></span><span class="nav-label">Standard Proposal</span></a>
-      <a href="/multi-category.html"><span class="nav-icon" data-icon="layers"></span><span class="nav-label">Holistic Calculation (Proposal)</span></a>
-      <a href="/manual.html"><span class="nav-icon" data-icon="edit"></span><span class="nav-label">Manual Proposal</span></a>
-      <a href="/admin" class="active"><span class="nav-icon" data-icon="settings"></span><span class="nav-label">Admin Panel</span></a>
-    </nav>
-    <a class="sidebar-help-link" href="/index.html"><span class="nav-icon" data-icon="arrowLeft"></span><span class="nav-label">Back to public app</span></a>
-    <div class="sidebar-watermark">Powered by KC RevOps</div>
-  </aside>
+  <aside class="sidebar" id="sidebar" data-variant="admin" data-nav="admin"></aside>
   <main class="main">
-    <div class="admin-tabs">
-      <a href="/admin" class="admin-tab active">Pricing configuration</a>
-      <a href="/admin/password" class="admin-tab">Change password</a>
-    </div>
 
-    <p class="hint" style="margin-bottom:1.25rem;">Every value below drives the pricing calculations on all three proposal types (Standard, Holistic, Manual). Changes take effect on the very next proposal generated — no redeploy needed.</p>
+    <p class="hint" style="margin-bottom:1.25rem;">Every value below drives the pricing for all three proposal types (Standard, Holistic, Manual) and the LMS price in the KC Pricing Calculator. Changes take effect on the very next quote — no redeploy needed. Other products' rates are on the KC Pricing Calculator admin page.</p>
 
     <div class="admin-section">
       <div class="admin-section-title">Pricing years</div>
@@ -49,10 +36,19 @@
     </div>
 
     <div class="admin-section">
-      <div class="admin-section-title">Category tier pricing</div>
-      <div class="admin-section-desc">Each category tier is priced as a percentage of the full "All 5 Categories" price. The display name is what shows up on the proposal's pricing table.</div>
+      <div class="admin-section-title">LMS + Library price split</div>
+      <div class="admin-section-desc">The combined LMS + Library price is split between the content Library and the LMS platform. A category tier (below) only scales the Library share; the LMS platform share is always full price. Proposals and the KC Pricing Calculator both use this split.</div>
+      <div class="admin-grid">
+        <div class="admin-inline-field"><label>Library share (%)</label><input type="number" id="lmsSplitLibrary" step="0.01" min="0" max="100"></div>
+        <div class="admin-inline-field"><label>LMS platform share (%)</label><input type="number" id="lmsSplitLms" disabled></div>
+      </div>
+    </div>
+
+    <div class="admin-section">
+      <div class="admin-section-title">LMS category tier pricing</div>
+      <div class="admin-section-desc">Each category tier's percentage scales only the Library share of the price (see the split above). For example, at a 60/40 split a tier set to 80% costs 0.6 × 80% + 0.4 = 88% of the full "All 5 Categories" price. The display name is what shows up on the proposal's pricing table.</div>
       <table class="admin-table">
-        <thead><tr><th>Tier key</th><th>Display name</th><th>% of full price</th></tr></thead>
+        <thead><tr><th>Tier key</th><th>Display name</th><th>% of full Library price</th></tr></thead>
         <tbody id="categoryWeightsBody"></tbody>
       </table>
     </div>
@@ -84,7 +80,7 @@
     <div id="saveStatus" style="margin-top:0.5rem; text-align:center;"></div>
   </main>
 </div>
-<script src="/app.js?v=12"></script>
+<script src="/app.js?v=27"></script>
 <script>
 (async function () {
   var res = await fetch('/admin/config');
@@ -138,6 +134,14 @@
     categoryWeightsBody.appendChild(tr);
   });
 
+  // ---- LMS + Library split ----
+  var splitLib = document.getElementById('lmsSplitLibrary');
+  var splitLms = document.getElementById('lmsSplitLms');
+  function syncSplit() { splitLms.value = Math.round((100 - (Number(splitLib.value) || 0)) * 100) / 100; }
+  splitLib.value = Math.round(config.lmsSplit.library * 10000) / 100;
+  splitLib.addEventListener('input', syncSplit);
+  syncSplit();
+
   // ---- Multi-Year discounts ----
   document.getElementById('my2yr').value = Math.round(config.multiYearDiscounts['2yr'] * 10000) / 100;
   document.getElementById('my3yr').value = Math.round(config.multiYearDiscounts['3yr'] * 10000) / 100;
@@ -190,6 +194,10 @@
       defaultPricingYear: defaultPricingYear,
       categoryWeights: categoryWeights,
       categoryDisplayNames: categoryDisplayNames,
+      lmsSplit: (function () {
+        var lib = (Number(splitLib.value) || 0) / 100;
+        return { library: lib, lms: Math.round((1 - lib) * 10000) / 10000 };
+      })(),
       multiYearDiscounts: {
         '2yr': (Number(document.getElementById('my2yr').value) || 0) / 100,
         '3yr': (Number(document.getElementById('my3yr').value) || 0) / 100,
@@ -212,7 +220,8 @@
       var saveRes = await fetch('/admin/config', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newConfig),
       });
-      if (saveRes.ok) { status.textContent = 'Saved — every proposal type now uses these values.'; status.style.color = '#3fb950'; }
+      if (saveRes.status === 401) { status.textContent = 'Your admin session has ended — redirecting to log in…'; status.style.color = '#e2554a'; setTimeout(function () { location.href = '/admin/login'; }, 1800); return; }
+      if (saveRes.ok) { status.textContent = 'Saved — proposals and the pricing calculator now use these values.'; status.style.color = '#3fb950'; }
       else { var err = await saveRes.json(); status.textContent = err.error; status.style.color = '#e2554a'; }
     } catch (e) {
       status.textContent = 'Could not save: ' + e.message; status.style.color = '#e2554a';

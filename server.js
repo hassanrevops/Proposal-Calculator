@@ -11,8 +11,15 @@ const {
   buildMultiCategoryProposalNumbers,
 } = require('./src/pricing');
 const { getConfig, saveConfig, validateConfig } = require('./src/config-store');
-const { verifyPassword, changePassword, requireAuth } = require('./src/auth');
+const { verifyPassword, changePassword, requireAuth, requireAuthApi } = require('./src/auth');
 const { generateProposalPptx } = require('./src/pptx-fill');
+const { proposalProductList, proposalLabel } = require('./src/products');
+const { getCatalog, computeDeal } = require('./src/calculator');
+const { currencySymbolFor } = require('./src/currencies');
+const {
+  requireObject, requireArray, parseLicenses, parseDiscountFraction, parseText, parseManualSlides,
+  MAX_ROWS_PER_SLIDE, MAX_SLIDES, MAX_NOTE_LENGTH,
+} = require('./src/validate');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -27,7 +34,7 @@ app.use(session({
 // Visiting any public proposal page immediately ends an admin session — an admin
 // who navigates back to the public app must log in again next time, rather than
 // staying signed in indefinitely just because the session cookie is still valid.
-const PUBLIC_PAGE_PATHS = ['/', '/index.html', '/manual.html', '/multi-category.html'];
+const PUBLIC_PAGE_PATHS = ['/', '/index.html', '/manual.html', '/multi-category.html', '/calculator', '/calculator.html'];
 app.use((req, res, next) => {
   if (PUBLIC_PAGE_PATHS.includes(req.path) && req.session && req.session.authenticated) {
     req.session.destroy(() => next());
@@ -38,63 +45,132 @@ app.use((req, res, next) => {
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-function currencySymbolFor(code) {
-  const map = { USD: '$', EUR: '€', GBP: '£', CAD: 'CA$', AUD: 'A$' };
-  return map[code] || '$';
-}
+// Some browsers ask for /favicon.ico no matter what the pages declare.
+app.get('/favicon.ico', (req, res) => {
+  res.type('image/png').sendFile(path.join(__dirname, 'public', 'img', 'kc-icon.png'));
+});
+
+// The Products dropdown on all three proposal pages: LMS category tiers plus every
+// other enabled product, straight from the admin-editable catalog.
+app.get('/products', async (req, res) => {
+  res.json(proposalProductList(await getConfig()));
+});
+
+// ---------------------------------------------------------------------------
+// Unified pricing calculator
+// ---------------------------------------------------------------------------
+
+app.get('/calculator', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'calculator.html'));
+});
+
+app.get('/calculator/catalog', async (req, res) => {
+  res.json(getCatalog(await getConfig()));
+});
+
+app.post('/calculate-deal', async (req, res) => {
+  try {
+    res.json(computeDeal(req.body, await getConfig()));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Live-preview calculation endpoints — pure math, no .pptx template involved.
 // These power the real-time preview on all three proposal pages.
 // ---------------------------------------------------------------------------
 
+function multiYearPctOf(config) {
+  return {
+    '2yr': config.multiYearDiscounts['2yr'] * 100,
+    '3yr': config.multiYearDiscounts['3yr'] * 100,
+    '5yr': config.multiYearDiscounts['5yr'] * 100,
+  };
+}
+
+// Validation problems carry a status and a plain-language message; anything else
+// is reported as a failure to build the file.
+function sendCalcError(res, err) {
+  res.status(err.status || 400).json({ error: err.message });
+}
+
+function sendGenerateError(res, err) {
+  if (err.status) return res.status(err.status).json({ error: err.message });
+  console.error('Proposal generation failed:', err);
+  return res.status(503).json({
+    error: 'The proposal file could not be built. ' + err.message,
+    hint: 'Real .pptx generation needs the templates/ folder\'s Template for Proposal.pptx files to be present.',
+  });
+}
+
+// A file name that is safe in an HTTP header for any company name, with the real
+// (possibly non-Latin) name carried in the RFC 5987 form.
+function contentDispositionFor(name) {
+  const base = String(name || 'proposal');
+  const ascii = base.replace(/[^\x20-\x7e]/g, '_').replace(/["\\/:*?<>|]/g, '_').trim() || 'proposal';
+  return `attachment; filename="${ascii}.pptx"; filename*=UTF-8''${encodeURIComponent(base)}.pptx`;
+}
+
+function sendDeck(res, companyName, buffer) {
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
+  res.setHeader('Content-Disposition', contentDispositionFor(companyName));
+  res.send(buffer);
+}
+
+function parseLineItems(value) {
+  return requireArray(value, 'line item', 1, MAX_ROWS_PER_SLIDE).map((raw, i) => {
+    const li = requireObject(raw, `line item ${i + 1}`);
+    return {
+      licenseCount: parseLicenses(li.licenseCount, `Line item ${i + 1}: number of licenses`),
+      categoryTier: li.categoryTier,
+      categoryDisplayLabel: parseText(li.categoryDisplayLabel, 'Display label', { max: 100 }) || undefined,
+    };
+  });
+}
+
 app.post('/calculate-row', async (req, res) => {
   try {
     const config = await getConfig();
-    const { licenses, categoryTier, specialDiscountPct, nonProfit, categoryDisplayLabel } = req.body;
+    const body = requireObject(req.body);
     const numbers = buildProposalNumbers(
       {
-        licenses: Number(licenses),
-        categoryTier,
+        licenses: parseLicenses(body.licenses),
+        categoryTier: body.categoryTier,
         pricingYear: config.defaultPricingYear,
-        nonProfit: !!nonProfit,
+        nonProfit: !!body.nonProfit,
         priceAdjustmentPct: 0,
-        specialDiscountPct: Number(specialDiscountPct) / 100,
+        specialDiscountPct: parseDiscountFraction(body.specialDiscountPct),
       },
       config
     );
     res.json({
-      categoryDisplayLabel: categoryDisplayLabel || config.categoryDisplayNames[categoryTier] || categoryTier,
+      categoryDisplayLabel: parseText(body.categoryDisplayLabel, 'Display label', { max: 100 }) || proposalLabel(body.categoryTier, config),
       costPerUser1Yr: numbers.costPerUser1Yr,
       afterDiscountCostPerUser: numbers.afterDiscountCostPerUser,
       subTotal: numbers.subTotal,
       multiYear: numbers.multiYear,
-      multiYearPct: {
-        '2yr': config.multiYearDiscounts['2yr'] * 100,
-        '3yr': config.multiYearDiscounts['3yr'] * 100,
-        '5yr': config.multiYearDiscounts['5yr'] * 100,
-      },
+      multiYearPct: multiYearPctOf(config),
     });
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    sendCalcError(res, err);
   }
 });
 
 app.post('/calculate-multi-category', async (req, res) => {
   try {
     const config = await getConfig();
-    const { lineItems, specialDiscountPct, nonProfit } = req.body;
+    const body = requireObject(req.body);
     const numbers = buildMultiCategoryProposalNumbers(
       {
-        lineItems: lineItems.map((li) => ({
-          licenseCount: Number(li.licenseCount),
-          categoryTier: li.categoryTier,
-          categoryDisplayLabel: config.categoryDisplayNames[li.categoryTier] || li.categoryTier,
+        lineItems: parseLineItems(body.lineItems).map((li) => ({
+          ...li,
+          categoryDisplayLabel: li.categoryDisplayLabel || proposalLabel(li.categoryTier, config),
         })),
         pricingYear: config.defaultPricingYear,
-        nonProfit: !!nonProfit,
+        nonProfit: !!body.nonProfit,
         priceAdjustmentPct: 0,
-        specialDiscountPct: Number(specialDiscountPct) / 100,
+        specialDiscountPct: parseDiscountFraction(body.specialDiscountPct),
       },
       config
     );
@@ -102,81 +178,76 @@ app.post('/calculate-multi-category', async (req, res) => {
       rows: numbers.rows,
       grandSubTotal: numbers.grandSubTotal,
       multiYear: numbers.multiYear,
-      multiYearPct: {
-        '2yr': config.multiYearDiscounts['2yr'] * 100,
-        '3yr': config.multiYearDiscounts['3yr'] * 100,
-        '5yr': config.multiYearDiscounts['5yr'] * 100,
-      },
+      multiYearPct: multiYearPctOf(config),
     });
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    sendCalcError(res, err);
   }
 });
 
 // ---------------------------------------------------------------------------
 // Real .pptx generation — requires the actual KnowledgeCity template files in
-// templates/. Until those are supplied, these routes return a clear 503 rather
-// than a confusing crash.
+// templates/. Validation problems come back as 400 with a plain message; a missing
+// template or a failure while building the file comes back as 503.
 // ---------------------------------------------------------------------------
 
 app.post('/generate', async (req, res) => {
   try {
     const config = await getConfig();
-    const { companyName, proposalDate, currencyCode, slides } = req.body;
-    const symbol = currencySymbolFor(currencyCode);
+    const body = requireObject(req.body);
+    const companyName = parseText(body.companyName, 'Company name', { required: true });
+    const symbol = currencySymbolFor(body.currencyCode);
 
-    const builtSlides = slides.map((slide) => {
+    const builtSlides = requireArray(body.slides, 'pricing slide', 1, MAX_SLIDES).map((raw, i) => {
+      const slide = requireObject(raw, `slide ${i + 1}`);
+      const rows = requireArray(slide.rows, `row on slide ${i + 1}`, 1, MAX_ROWS_PER_SLIDE).map((r) => {
+        const row = requireObject(r, `row on slide ${i + 1}`);
+        return {
+          licenses: parseLicenses(row.licenses, `Slide ${i + 1}: number of licenses`),
+          categoryTier: row.categoryTier,
+          categoryDisplayLabel: parseText(row.categoryDisplayLabel, 'Display label', { max: 100 }) || undefined,
+        };
+      });
+      const discount = parseDiscountFraction(slide.specialDiscountPct);
       const numbers = buildSlideNumbers(
-        {
-          rows: slide.rows,
-          pricingYear: config.defaultPricingYear,
-          nonProfit: !!slide.nonProfit,
-          specialDiscountPct: Number(slide.specialDiscountPct) / 100,
-        },
+        { rows, pricingYear: config.defaultPricingYear, nonProfit: !!slide.nonProfit, specialDiscountPct: discount },
         config
       );
       return {
-        rows: numbers.rows.map((r) => ({ ...r, categoryDisplayLabel: r.categoryDisplayLabel || config.categoryDisplayNames[r.categoryTier] || r.categoryTier })),
+        rows: numbers.rows.map((r) => ({ ...r, categoryDisplayLabel: r.categoryDisplayLabel || proposalLabel(r.categoryTier, config) })),
         combinedSubTotal: numbers.combinedSubTotal,
         multiYear: numbers.multiYear,
         includeMultiYearTerms: slide.includeMultiYearTerms !== false,
-        includeDiscountColumn: Number(slide.specialDiscountPct) > 0,
-        specialNote: slide.specialNote,
+        includeDiscountColumn: discount > 0,
+        specialNote: parseText(slide.specialNote, 'Special note', { max: MAX_NOTE_LENGTH }),
       };
     });
 
     const buffer = await generateProposalPptx(
-      { companyName, proposalDate, currencySymbol: symbol, slides: builtSlides },
+      { companyName, proposalDate: parseText(body.proposalDate, 'Date', { max: 30 }), currencySymbol: symbol, slides: builtSlides },
       config
     );
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
-    res.setHeader('Content-Disposition', `attachment; filename="${companyName || 'proposal'}.pptx"`);
-    res.send(buffer);
+    sendDeck(res, companyName, buffer);
   } catch (err) {
-    res.status(503).json({
-      error: err.message,
-      hint: 'Real .pptx generation needs the templates/ folder\'s Template for Proposal.pptx files to be present.',
-    });
+    sendGenerateError(res, err);
   }
 });
 
 app.post('/generate-multi-category', async (req, res) => {
   try {
     const config = await getConfig();
-    const { companyName, proposalDate, currencyCode, lineItems, specialDiscountPct, nonProfit, includeMultiYearTerms, specialNote } = req.body;
-    const symbol = currencySymbolFor(currencyCode);
+    const body = requireObject(req.body);
+    const companyName = parseText(body.companyName, 'Company name', { required: true });
+    const symbol = currencySymbolFor(body.currencyCode);
+    const discount = parseDiscountFraction(body.specialDiscountPct);
 
     const numbers = buildMultiCategoryProposalNumbers(
       {
-        lineItems: lineItems.map((li) => ({
-          licenseCount: Number(li.licenseCount),
-          categoryTier: li.categoryTier,
-          categoryDisplayLabel: li.categoryDisplayLabel,
-        })),
+        lineItems: parseLineItems(body.lineItems),
         pricingYear: config.defaultPricingYear,
-        nonProfit: !!nonProfit,
+        nonProfit: !!body.nonProfit,
         priceAdjustmentPct: 0,
-        specialDiscountPct: Number(specialDiscountPct) / 100,
+        specialDiscountPct: discount,
       },
       config
     );
@@ -185,61 +256,50 @@ app.post('/generate-multi-category', async (req, res) => {
     // row per line item instead of one row total — so the same generator that
     // builds the Standard Proposal's .pptx (and already clones the template's data
     // row once per entry in `rows`) handles this without any special-casing.
+    // buildMultiCategoryProposalNumbers' rows use `licenseCount` and don't carry
+    // specialDiscountPct, while pptx-fill's row filler and its "After Discount N%"
+    // header expect the Standard path's row shape, so both are reconciled here.
     const slide = {
-      // buildMultiCategoryProposalNumbers' rows use `licenseCount` (matching the
-      // Holistic addendum's own field naming) and don't carry specialDiscountPct
-      // at all (unlike buildSlideNumbers' rows) — pptx-fill's row filler and its
-      // "After Discount N%" header both expect the Standard path's row shape, so
-      // both are reconciled here.
       rows: numbers.rows.map((r) => ({
         ...r,
         licenses: r.licenseCount,
-        specialDiscountPct: Number(specialDiscountPct) / 100,
-        categoryDisplayLabel: r.categoryDisplayLabel || config.categoryDisplayNames[r.categoryTier] || r.categoryTier,
+        specialDiscountPct: discount,
+        categoryDisplayLabel: r.categoryDisplayLabel || proposalLabel(r.categoryTier, config),
       })),
       combinedSubTotal: numbers.grandSubTotal,
       multiYear: numbers.multiYear,
-      includeMultiYearTerms: includeMultiYearTerms !== false,
-      includeDiscountColumn: Number(specialDiscountPct) > 0,
-      specialNote,
+      includeMultiYearTerms: body.includeMultiYearTerms !== false,
+      includeDiscountColumn: discount > 0,
+      specialNote: parseText(body.specialNote, 'Special note', { max: MAX_NOTE_LENGTH }),
     };
 
     const buffer = await generateProposalPptx(
-      { companyName, proposalDate, currencySymbol: symbol, slides: [slide] },
+      { companyName, proposalDate: parseText(body.proposalDate, 'Date', { max: 30 }), currencySymbol: symbol, slides: [slide] },
       config
     );
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
-    res.setHeader('Content-Disposition', `attachment; filename="${companyName || 'proposal'}.pptx"`);
-    res.send(buffer);
+    sendDeck(res, companyName, buffer);
   } catch (err) {
-    res.status(503).json({
-      error: err.message,
-      hint: 'Real .pptx generation needs the templates/ folder\'s Template for Proposal.pptx files to be present.',
-    });
+    sendGenerateError(res, err);
   }
 });
 
 app.post('/generate-manual', async (req, res) => {
   try {
     const config = await getConfig();
-    const { companyName, proposalDate, currencyCode, slides } = req.body;
-    const symbol = currencySymbolFor(currencyCode);
+    const body = requireObject(req.body);
+    const companyName = parseText(body.companyName, 'Company name', { required: true });
+    const symbol = currencySymbolFor(body.currencyCode);
 
     // Manual Proposal's numbers are exactly what's on screen (engine defaults the
     // user may have overridden) — unlike Standard/Holistic, nothing here is
     // recomputed from the pricing engine; the client's own figures are used as-is.
     const buffer = await generateProposalPptx(
-      { companyName, proposalDate, currencySymbol: symbol, slides },
+      { companyName, proposalDate: parseText(body.proposalDate, 'Date', { max: 30 }), currencySymbol: symbol, slides: parseManualSlides(body.slides) },
       config
     );
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
-    res.setHeader('Content-Disposition', `attachment; filename="${companyName || 'proposal'}.pptx"`);
-    res.send(buffer);
+    sendDeck(res, companyName, buffer);
   } catch (err) {
-    res.status(503).json({
-      error: err.message,
-      hint: 'Real .pptx generation needs the templates/ folder\'s Template for Proposal.pptx files to be present.',
-    });
+    sendGenerateError(res, err);
   }
 });
 
@@ -272,11 +332,15 @@ app.get('/admin/password', requireAuth, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'admin-password.html'));
 });
 
-app.get('/admin/config', requireAuth, async (req, res) => {
+app.get('/admin/calculator', requireAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'admin-calculator.html'));
+});
+
+app.get('/admin/config', requireAuthApi, async (req, res) => {
   res.json(await getConfig());
 });
 
-app.post('/admin/config', requireAuth, async (req, res) => {
+app.post('/admin/config', requireAuthApi, async (req, res) => {
   try {
     const saved = await saveConfig(req.body);
     res.json(saved);
@@ -285,13 +349,21 @@ app.post('/admin/config', requireAuth, async (req, res) => {
   }
 });
 
-app.post('/admin/change-password', requireAuth, (req, res) => {
+app.post('/admin/change-password', requireAuthApi, (req, res) => {
   try {
     changePassword(req.body.currentPassword, req.body.newPassword);
     res.json({ ok: true });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+});
+
+app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
+  if (err.type === 'entity.parse.failed' || err.type === 'entity.too.large') {
+    return res.status(400).json({ error: 'The request could not be read.' });
+  }
+  console.error(err);
+  return res.status(500).json({ error: 'Something went wrong on the server.' });
 });
 
 if (require.main === module) {

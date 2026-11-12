@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Admin — KnowledgeCity QuoteHub</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/png" href="/img/kc-icon.png">
+<link rel="stylesheet" href="/styles.css?v=28">
+</head>
+<body>
+<button class="theme-toggle-fab" id="themeToggle" data-icon="moon" aria-label="Switch to dark mode"></button>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar" data-variant="admin" data-nav="admin-calculator"></aside>
+  <main class="main">
+    <p class="hint" style="margin-bottom:1.25rem;">Rates and rules for every product in the KC Pricing Calculator and the proposal generator's Products dropdown. Changes take effect on the very next quote — no redeploy needed. KC LMS + Library pricing (volume tiers, base price, LMS/Library split, multi-year defaults) is edited on the Proposal Generator admin page.</p>
+
+    <div id="productsContainer"></div>
+
+    <div class="form-actions">
+      <button class="btn btn-primary btn-block" id="saveBtn">Save all changes</button>
+    </div>
+    <div id="saveStatus" style="margin-top:0.5rem; text-align:center;"></div>
+  </main>
+</div>
+<script src="/app.js?v=27"></script>
+<script>
+(async function () {
+  var esc = window.KCEsc;
+  var res = await fetch('/admin/config');
+  if (res.status === 401 || res.redirected) { location.href = '/admin/login'; return; }
+  var config = await res.json();
+  var products = JSON.parse(JSON.stringify(config.products));
+  var container = document.getElementById('productsContainer');
+
+  var MODEL_LABEL = {
+    lms_marginal: 'Volume-tier pricing',
+    banded_pec: 'Rate per employee, by headcount band',
+    flat_band: 'Flat annual fee, by company-size band',
+    studio_plan: 'Plan-based (cost + markup)',
+  };
+
+  function val(v) { return v == null ? '' : v; }
+  function numOrNull(v) { return v === '' ? null : Number(v); }
+
+  function bandRow(unitLabel, b) {
+    var tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td><input type="number" class="f-from" step="1" min="1" value="' + val(b.from) + '"></td>' +
+      '<td><input type="number" class="f-to" step="1" placeholder="no limit" value="' + val(b.to) + '"></td>' +
+      '<td><input type="number" class="f-rate" step="0.01" min="0" value="' + val(b.rate) + '"></td>' +
+      '<td><button type="button" class="admin-row-remove" aria-label="Remove band">' + window.KCIcons.trash + '</button></td>';
+    tr.querySelector('.admin-row-remove').addEventListener('click', function () { tr.remove(); });
+    return tr;
+  }
+
+  function planRow(pl) {
+    var tr = document.createElement('tr');
+    tr.setAttribute('data-plan-id', pl.id || '');
+    tr.innerHTML =
+      '<td><input type="text" class="f-label" value="' + esc(pl.label || '') + '"></td>' +
+      '<td><input type="number" class="f-seats" step="1" min="0" value="' + val(pl.seats) + '"></td>' +
+      '<td><input type="number" class="f-coursesMo" step="1" min="0" value="' + val(pl.coursesMo) + '"></td>' +
+      '<td><input type="number" class="f-playbackMo" step="1" min="0" value="' + val(pl.playbackMo) + '"></td>' +
+      '<td><input type="number" class="f-mult" step="0.1" min="0" value="' + val(pl.mult) + '"></td>' +
+      '<td><button type="button" class="admin-row-remove" aria-label="Remove plan">' + window.KCIcons.trash + '</button></td>';
+    tr.querySelector('.admin-row-remove').addEventListener('click', function () { tr.remove(); });
+    return tr;
+  }
+
+  function field(label, cls, value, type, extra) {
+    return '<div class="admin-inline-field"><label>' + label + '</label><input type="' + (type || 'number') + '" class="' + cls + '" ' + (extra || 'step="any"') + ' value="' + esc(val(value)) + '"></div>';
+  }
+
+  function renderProduct(p, idx) {
+    var d = document.createElement('details');
+    d.className = 'admin-product';
+    d.setAttribute('data-idx', idx);
+    var body = '';
+    body += '<div class="admin-grid" style="margin-bottom:1.1rem;">' +
+      field('Name', 'f-name', p.name, 'text') +
+      field('Description', 'f-desc', p.desc, 'text') +
+      '<div class="admin-inline-field"><label>Show in the app</label><label class="checkbox-row" style="margin-top:0.55rem;"><input type="checkbox" class="f-enabled"' + (p.enabled !== false ? ' checked' : '') + '> Enabled</label></div>' +
+      '</div>';
+
+    if (p.model === 'lms_marginal') {
+      body += '<div class="hint">Pricing for this product comes from the Proposal Generator admin page (volume tiers, pricing years, LMS add-on, LMS / Library split, category tiers).</div>';
+    } else if (p.model === 'banded_pec' || p.model === 'flat_band') {
+      var flat = p.model === 'flat_band';
+      body += '<div class="admin-grid" style="margin-bottom:1.1rem;">' +
+        (flat ? '' : field('Free up to (count)', 'f-freeCap', p.freeCap, 'number', 'step="1" min="0" placeholder="none"')) +
+        (flat ? '' : field('Free-tier unit label', 'f-freeCapUnit', p.freeCapUnit, 'text', 'placeholder="employees"')) +
+        field('Sales-led ("custom") above', 'f-customAbove', p.customAbove, 'number', 'step="1" min="0" placeholder="none"') +
+        (p.seatBased ? field('Default count when left blank', 'f-defaultSeats', p.defaultSeats, 'number', 'step="1" min="0"') : '') +
+        (p.seatBased ? field('Count field label', 'f-overrideLabel', p.overrideLabel, 'text') : '') +
+        '</div>';
+      var unit = flat ? 'Annual fee ($)' : ('Rate per ' + (p.unit || 'user') + ' / yr ($)');
+      body += '<table class="admin-table"><thead><tr><th>From (count)</th><th>To (count)</th><th>' + esc(unit) + '</th><th></th></tr></thead><tbody class="band-body"></tbody></table>' +
+        '<button type="button" class="btn admin-add-row add-band">+ Add band</button>' +
+        '<div class="hint" style="margin-top:0.6rem;">' + (flat
+          ? 'One flat annual fee, picked by the band the company size falls in. Leave "To" blank on the last band for no upper limit.'
+          : 'One rate is picked by the band the total count falls in, then applied to every unit. Leave "To" blank on the last band for no upper limit.') + '</div>';
+    } else if (p.model === 'studio_plan') {
+      body += '<div class="admin-grid" style="margin-bottom:1.1rem;">' +
+        field('Cost per course ($)', 'f-cogsCourse', p.cogsCourse, 'number', 'step="0.01" min="0"') +
+        field('Cost per playback credit ($)', 'f-cogsPlayback', p.cogsPlayback, 'number', 'step="0.01" min="0"') +
+        field('Extra seat price ($ / yr)', 'f-extraSeat', p.extraSeat, 'number', 'step="1" min="0"') +
+        '</div>' +
+        '<table class="admin-table"><thead><tr><th>Plan</th><th>Included seats</th><th>Courses / month</th><th>Playback credits / month</th><th>Markup (×)</th><th></th></tr></thead><tbody class="plan-body"></tbody></table>' +
+        '<button type="button" class="btn admin-add-row add-plan">+ Add plan</button>' +
+        '<div class="hint" style="margin-top:0.6rem;">Plan price = (courses per year × cost per course + playback credits × cost per credit) × markup, plus extra seats at the flat seat price.</div>';
+    }
+
+    d.innerHTML =
+      '<summary><span>' + esc(p.name) + '</span><span class="admin-product-state">' + esc(MODEL_LABEL[p.model] || p.model) + '</span></summary>' +
+      '<div class="admin-product-body">' + body + '</div>';
+    container.appendChild(d);
+
+    if (p.bands) {
+      var tbody = d.querySelector('.band-body');
+      p.bands.forEach(function (b) { tbody.appendChild(bandRow('', b)); });
+      d.querySelector('.add-band').addEventListener('click', function () { tbody.appendChild(bandRow('', {})); });
+    }
+    if (p.plans) {
+      var pbody = d.querySelector('.plan-body');
+      p.plans.forEach(function (pl) { pbody.appendChild(planRow(pl)); });
+      d.querySelector('.add-plan').addEventListener('click', function () { pbody.appendChild(planRow({})); });
+    }
+  }
+  products.forEach(renderProduct);
+
+  function slug(label, taken) {
+    var base = String(label).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'plan';
+    var id = base, n = 2;
+    while (taken.indexOf(id) !== -1) id = base + '_' + (n++);
+    return id;
+  }
+
+  function buildProducts() {
+    return products.map(function (orig, idx) {
+      var d = container.querySelector('[data-idx="' + idx + '"]');
+      var p = JSON.parse(JSON.stringify(orig));
+      p.name = d.querySelector('.f-name').value.trim();
+      p.desc = d.querySelector('.f-desc').value;
+      p.enabled = d.querySelector('.f-enabled').checked;
+      var q = function (c) { return d.querySelector(c); };
+      if (q('.f-freeCap')) {
+        var fc = numOrNull(q('.f-freeCap').value);
+        if (fc == null) delete p.freeCap; else p.freeCap = fc;
+        p.freeCapUnit = q('.f-freeCapUnit').value || undefined;
+        if (p.freeCapUnit === undefined) delete p.freeCapUnit;
+      }
+      if (q('.f-customAbove')) {
+        var ca = numOrNull(q('.f-customAbove').value);
+        if (ca == null) delete p.customAbove; else p.customAbove = ca;
+      }
+      if (q('.f-defaultSeats')) p.defaultSeats = Math.max(0, Number(q('.f-defaultSeats').value) || 0);
+      if (q('.f-overrideLabel')) p.overrideLabel = q('.f-overrideLabel').value;
+      if (p.bands) {
+        p.bands = Array.prototype.map.call(d.querySelectorAll('.band-body tr'), function (tr) {
+          return {
+            from: Number(tr.querySelector('.f-from').value) || 0,
+            to: numOrNull(tr.querySelector('.f-to').value),
+            rate: Number(tr.querySelector('.f-rate').value) || 0,
+          };
+        });
+      }
+      if (p.plans) {
+        p.cogsCourse = Number(q('.f-cogsCourse').value) || 0;
+        p.cogsPlayback = Number(q('.f-cogsPlayback').value) || 0;
+        p.extraSeat = Number(q('.f-extraSeat').value) || 0;
+        var taken = [];
+        p.plans = Array.prototype.map.call(d.querySelectorAll('.plan-body tr'), function (tr) {
+          var label = tr.querySelector('.f-label').value.trim();
+          var id = tr.getAttribute('data-plan-id') || slug(label, taken);
+          taken.push(id);
+          return {
+            id: id, label: label,
+            seats: Number(tr.querySelector('.f-seats').value) || 0,
+            coursesMo: Number(tr.querySelector('.f-coursesMo').value) || 0,
+            playbackMo: Number(tr.querySelector('.f-playbackMo').value) || 0,
+            mult: Number(tr.querySelector('.f-mult').value) || 0,
+          };
+        });
+      }
+      return p;
+    });
+  }
+
+  document.getElementById('saveBtn').addEventListener('click', async function () {
+    var status = document.getElementById('saveStatus');
+    try {
+      var saveRes = await fetch('/admin/config', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ products: buildProducts() }),
+      });
+      if (saveRes.status === 401) { status.textContent = 'Your admin session has ended — redirecting to log in…'; status.style.color = '#e2554a'; setTimeout(function () { location.href = '/admin/login'; }, 1800); return; }
+      if (saveRes.ok) { status.textContent = 'Saved — the calculator and proposals now use these values.'; status.style.color = '#3fb950'; }
+      else { var err = await saveRes.json(); status.textContent = err.error; status.style.color = '#e2554a'; }
+    } catch (e) {
+      status.textContent = 'Could not save: ' + e.message; status.style.color = '#e2554a';
+    }
+  });
+})();
+</script>
+</body>
+</html>

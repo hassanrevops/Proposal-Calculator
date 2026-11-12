@@ -41,8 +41,8 @@ test('displayed per-license price times license count equals the displayed Sub-T
   );
 
   const row = numbers.rows[0];
-  assert.equal(row.costPerUser1Yr.toFixed(2), '64.48', 'displayed per-license price matches what the user sees');
-  assert.equal(row.subTotal.toFixed(2), '19344.00', 'Sub-Total is the rounded per-license price times the license count');
+  assert.equal(row.costPerUser1Yr.toFixed(2), '75.53', 'displayed per-license price matches what the user sees');
+  assert.equal(row.subTotal.toFixed(2), '22659.00', 'Sub-Total is the rounded per-license price times the license count');
   assert.equal((row.costPerUser1Yr * row.licenseCount).toFixed(2), row.subTotal.toFixed(2));
 });
 
@@ -98,12 +98,13 @@ test('non-profit discount is exactly nonProfitDiscountPct off the base price (ou
   }
 });
 
-test('category weights apply proportionally to the All-5-Categories price, for every tier', () => {
+test('a category tier scales only the Library share of the All-5-Categories price, for every tier', () => {
   const licenses = 250;
   const all5 = computeCostPerLicense_1Year(licenses, 'all5', 2023, false, 0, DEFAULT_CONFIG);
+  const { library, lms } = DEFAULT_CONFIG.lmsSplit;
   for (const [tier, weight] of Object.entries(DEFAULT_CONFIG.categoryWeights)) {
     const tierCost = computeCostPerLicense_1Year(licenses, tier, 2023, false, 0, DEFAULT_CONFIG);
-    assert.ok(Math.abs(tierCost - all5 * weight) < 1e-9, `tier=${tier}`);
+    assert.ok(Math.abs(tierCost - all5 * (library * weight + lms)) < 1e-9, `tier=${tier}`);
   }
 });
 
@@ -192,5 +193,5 @@ test('addendum acceptance numbers still reproduce exactly (regression)', () => {
     DEFAULT_CONFIG
   );
   assert.equal(round2(result.all5CategoryPricePerLicense), 92.11);
-  assert.equal(round2(result.grandSubTotal), 30398.00);
+  assert.equal(round2(result.grandSubTotal), 36659.00);
 });

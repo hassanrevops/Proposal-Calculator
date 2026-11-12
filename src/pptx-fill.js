@@ -4,6 +4,9 @@ const JSZip = require('jszip');
 
 function escapeXml(s) {
   return String(s == null ? '' : s)
+    // control characters (e.g. pasted from a PDF) aren't allowed in XML at all and make
+    // PowerPoint offer to "repair" the file
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿]/g, '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -114,8 +117,23 @@ const MULTI_YEAR_BOX_BOTTOM = 2413336 + 2031325;
 const NOTE_GAP = 137160;
 const NOTE_HEIGHT = 600000;
 
+// The template's data rows are 0.7in tall, so 4+ rows run off the bottom of the slide.
+// Rows shrink just enough that the whole table (and the note under it) stays on the
+// slide; the preview applies the same rule (see public/preview.js).
+const TABLE_MAX_BOTTOM = 5900000;
+const MIN_DATA_ROW_H = 330000;
+
+function dataRowHeightFor(rowCount) {
+  const available = TABLE_MAX_BOTTOM - TABLE_Y - ROW_H.banner - ROW_H.header - ROW_H.total;
+  return Math.max(MIN_DATA_ROW_H, Math.min(ROW_H.data, Math.floor(available / Math.max(1, rowCount))));
+}
+
+function tableHeightFor(rowCount) {
+  return ROW_H.banner + ROW_H.header + rowCount * dataRowHeightFor(rowCount) + ROW_H.total;
+}
+
 function computeSpecialNoteY(rowCount, includeMultiYearTerms) {
-  const tableBottom = TABLE_Y + ROW_H.banner + ROW_H.header + rowCount * ROW_H.data + ROW_H.total;
+  const tableBottom = TABLE_Y + tableHeightFor(rowCount);
   const multiYearBottom = includeMultiYearTerms ? MULTI_YEAR_BOX_BOTTOM : 0;
   return Math.max(tableBottom, multiYearBottom) + NOTE_GAP;
 }
@@ -184,7 +202,7 @@ function fillSlide2(xml, { companyName, rows, combinedSubTotal, multiYear, multi
   // shows the shared discount % across every row on this slide.
   if (includeDiscountColumn && rows.length && rows[0].specialDiscountPct != null) {
     const pctLabel = fmtPercent(rows[0].specialDiscountPct);
-    xml = xml.replace(/<a:t>After Discount[^<]*<\/a:t>/, `<a:t>After Discount ${pctLabel}%</a:t>`);
+    xml = xml.replace(/<a:t>After Discount[^<]*<\/a:t>/, () => `<a:t>After Discount ${pctLabel}%</a:t>`);
   }
 
   const dataRowMatch = xml.match(/<a:tr h="644756">[\s\S]*?<\/a:tr>/);
@@ -206,10 +224,12 @@ function fillSlide2(xml, { companyName, rows, combinedSubTotal, multiYear, multi
       `${currencySymbol}${fmtMoneyNoSign(row.costPerUser1Yr)}`,
       `${currencySymbol}${fmtMoneyNoSign(row.subTotal)}`,
     ];
-    return replaceAllTextInOrder(dataRowXml, values);
+    return replaceAllTextInOrder(dataRowXml, values).replace('<a:tr h="644756">', `<a:tr h="${dataRowHeightFor(rows.length)}">`);
   }).join('');
+  // keep the table frame's own height in step with its rows
+  xml = xml.replace(/(<p:xfrm><a:off x="\d+" y="2103259"\/><a:ext cx="\d+" cy=")\d+("\/><\/p:xfrm>)/, (m, pre, post) => pre + tableHeightFor(rows.length) + post);
 
-  xml = xml.replace(dataRowXml, filledRows);
+  xml = xml.replace(dataRowXml, () => filledRows);
 
   // Total row — the template pads this cell's text with dozens of leading spaces
   // (a manual-positioning holdover from however it was originally typed), even
@@ -225,12 +245,12 @@ function fillSlide2(xml, { companyName, rows, combinedSubTotal, multiYear, multi
     /<a:t>[^<]*<\/a:t>(?![\s\S]*<a:t>)/,
     () => `<a:t>${currencySymbol}${fmtMoneyNoSign(combinedSubTotal)}</a:t>`
   );
-  xml = xml.replace(totalRowMatch[0], filledTotalRow);
+  xml = xml.replace(totalRowMatch[0], () => filledTotalRow);
 
   if (includeMultiYearTerms) {
-    xml = xml.replace(/<a:t>2-Year Term[^<]*<\/a:t>/, `<a:t>2-Year Term (-${fmtPercent(multiYearPct['2yr'])}%) = ${currencySymbol}${fmtMoneyNoSign(multiYear['2yr'])}</a:t>`);
-    xml = xml.replace(/<a:t>3-Year Term[^<]*<\/a:t>/, `<a:t>3-Year Term (-${fmtPercent(multiYearPct['3yr'])}%) = ${currencySymbol}${fmtMoneyNoSign(multiYear['3yr'])}</a:t>`);
-    xml = xml.replace(/<a:t>5-Year Term[^<]*<\/a:t>/, `<a:t>5-Year Term (-${fmtPercent(multiYearPct['5yr'])}%) = ${currencySymbol}${fmtMoneyNoSign(multiYear['5yr'])}</a:t>`);
+    xml = xml.replace(/<a:t>2-Year Term[^<]*<\/a:t>/, () => `<a:t>2-Year Term (-${fmtPercent(multiYearPct['2yr'])}%) = ${currencySymbol}${fmtMoneyNoSign(multiYear['2yr'])}</a:t>`);
+    xml = xml.replace(/<a:t>3-Year Term[^<]*<\/a:t>/, () => `<a:t>3-Year Term (-${fmtPercent(multiYearPct['3yr'])}%) = ${currencySymbol}${fmtMoneyNoSign(multiYear['3yr'])}</a:t>`);
+    xml = xml.replace(/<a:t>5-Year Term[^<]*<\/a:t>/, () => `<a:t>5-Year Term (-${fmtPercent(multiYearPct['5yr'])}%) = ${currencySymbol}${fmtMoneyNoSign(multiYear['5yr'])}</a:t>`);
   } else {
     xml = removeParagraphContaining(xml, '2-Year Term', '2-year bullet paragraph');
     xml = removeParagraphContaining(xml, '3-Year Term', '3-year bullet paragraph');
@@ -242,10 +262,58 @@ function fillSlide2(xml, { companyName, rows, combinedSubTotal, multiYear, multi
     const noteWidth = SLIDE_W - 2 * tableX;
     const noteY = computeSpecialNoteY(rows.length, includeMultiYearTerms);
     const shape = buildSpecialNoteShape(String(specialNote).trim(), { x: tableX, y: noteY, width: noteWidth, height: NOTE_HEIGHT });
-    xml = xml.replace('</p:spTree>', shape + '</p:spTree>');
+    xml = xml.replace('</p:spTree>', () => shape + '</p:spTree>');
   }
 
   return xml;
+}
+
+// The template files are completed real proposals, so their hidden package parts still
+// describe that old deck: its client name in the file properties, its author, a
+// thumbnail picture of its first slide (what Explorer/Outlook show as the preview), and
+// its edit history. Rewrite the title/author and drop the parts that can't be made
+// accurate — PowerPoint rebuilds the optional ones the next time the file is saved.
+function dropRelationships(xml, targets) {
+  return xml.replace(/<Relationship\b[^>]*\/>/g, (rel) => {
+    const t = (rel.match(/Target="([^"]*)"/) || [])[1] || '';
+    return targets.some((x) => t === x) ? '' : rel;
+  });
+}
+
+async function scrubPackageMetadata(zip, companyName) {
+  const title = `KnowledgeCity ${companyName} Proposal`;
+  const now = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+
+  if (zip.file('docProps/core.xml')) {
+    let core = await zip.file('docProps/core.xml').async('string');
+    core = core
+      .replace(/<dc:title>[^<]*<\/dc:title>/, () => `<dc:title>${escapeXml(title)}</dc:title>`)
+      .replace(/<dc:creator>[^<]*<\/dc:creator>/, '<dc:creator>KnowledgeCity</dc:creator>')
+      .replace(/<cp:lastModifiedBy>[^<]*<\/cp:lastModifiedBy>/, '')
+      .replace(/<cp:revision>[^<]*<\/cp:revision>/, '<cp:revision>1</cp:revision>')
+      .replace(/(<dcterms:created[^>]*>)[^<]*(<\/dcterms:created>)/, `$1${now}$2`)
+      .replace(/(<dcterms:modified[^>]*>)[^<]*(<\/dcterms:modified>)/, `$1${now}$2`);
+    zip.file('docProps/core.xml', core);
+  }
+
+  const parts = ['docProps/thumbnail.jpeg', 'docProps/app.xml', 'ppt/changesInfos/changesInfo1.xml', 'ppt/revisionInfo.xml'];
+  const present = parts.filter((p) => zip.file(p));
+
+  if (zip.file('_rels/.rels')) {
+    const rels = await zip.file('_rels/.rels').async('string');
+    zip.file('_rels/.rels', dropRelationships(rels, ['docProps/thumbnail.jpeg', 'docProps/app.xml']));
+  }
+  if (zip.file('ppt/_rels/presentation.xml.rels')) {
+    const rels = await zip.file('ppt/_rels/presentation.xml.rels').async('string');
+    zip.file('ppt/_rels/presentation.xml.rels', dropRelationships(rels, ['changesInfos/changesInfo1.xml', 'revisionInfo.xml']));
+  }
+  let types = await zip.file('[Content_Types].xml').async('string');
+  for (const p of present) {
+    types = types.replace(new RegExp('<Override PartName="/' + p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '"[^>]*/>'), '');
+    zip.remove(p);
+  }
+  zip.remove('ppt/changesInfos');
+  zip.file('[Content_Types].xml', types);
 }
 
 async function loadTemplate(templatePath) {
@@ -301,7 +369,7 @@ async function generateProposalPptx({ companyName, proposalDate, currencySymbol,
       rows: slideData.rows,
       combinedSubTotal: slideData.combinedSubTotal,
       multiYear: slideData.multiYear,
-      multiYearPct: config.multiYearDiscounts,
+      multiYearPct: slideData.multiYearPct || config.multiYearDiscounts,
       currencySymbol,
       includeMultiYearTerms: slideData.includeMultiYearTerms,
       includeDiscountColumn,
@@ -347,6 +415,8 @@ async function generateProposalPptx({ companyName, proposalDate, currencySymbol,
     zip.file('ppt/_rels/presentation.xml.rels', presRelsXml.replace('</Relationships>', newRelEntries + '</Relationships>'));
     zip.file('[Content_Types].xml', contentTypesXml.replace('</Types>', newContentTypeEntries + '</Types>'));
   }
+
+  await scrubPackageMetadata(zip, companyName);
 
   return zip.generateAsync({ type: 'nodebuffer' });
 }

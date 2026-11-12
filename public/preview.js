@@ -104,8 +104,19 @@
   var NOTE_GAP = 137160;
   var NOTE_HEIGHT = 600000;
 
+  // Same rule as src/pptx-fill.js: rows shrink so a tall table (and its note) stays on the slide.
+  var TABLE_MAX_BOTTOM = 5900000;
+  var MIN_DATA_ROW_H = 330000;
+  function dataRowHeightFor(rowCount) {
+    var available = TABLE_MAX_BOTTOM - 2103259 - ROW_H.banner - ROW_H.header - ROW_H.total;
+    return Math.max(MIN_DATA_ROW_H, Math.min(ROW_H.data, Math.floor(available / Math.max(1, rowCount))));
+  }
+  function tableHeightFor(rowCount) {
+    return ROW_H.banner + ROW_H.header + rowCount * dataRowHeightFor(rowCount) + ROW_H.total;
+  }
+
   function computeSpecialNoteY(rowCount, includeMultiYearTerms) {
-    var tableBottom = 2103259 + ROW_H.banner + ROW_H.header + rowCount * ROW_H.data + ROW_H.total;
+    var tableBottom = 2103259 + tableHeightFor(rowCount);
     var multiYearBottom = includeMultiYearTerms ? MULTI_YEAR_BOX_BOTTOM : 0;
     return Math.max(tableBottom, multiYearBottom) + NOTE_GAP;
   }
@@ -135,14 +146,14 @@
       var cells = ctCell(cols[0], esc(row.licenses)) + ctCell(cols[1], esc(row.categoryDisplayLabel)) + ctCell(cols[2], symbol + fmtMoney(row.costPerUser1Yr));
       if (slide.includeDiscountColumn) cells += ctCell(cols[3], symbol + fmtMoney(row.afterDiscountCostPerUser));
       cells += ctCell(cols[n - 1], symbol + fmtMoney(row.subTotal));
-      return ctRow('data', ROW_H.data, cells);
+      return ctRow('data', dataRowHeightFor(slide.rows.length), cells);
     }).join('');
 
     var labelWidth = cols[0] + cols[1];
     var amountWidth = cols.slice(2).reduce(function (a, b) { return a + b; }, 0);
     var totalRow = ctRow('total', ROW_H.total, ctCell(labelWidth, 'Total') + ctCell(amountWidth, symbol + fmtMoney(slide.combinedSubTotal)));
 
-    var tableHeightEmu = ROW_H.banner + ROW_H.header + slide.rows.length * ROW_H.data + ROW_H.total;
+    var tableHeightEmu = tableHeightFor(slide.rows.length);
 
     var multiYearHtml = '';
     if (slide.includeMultiYearTerms) {
@@ -180,7 +191,8 @@
     if (!container) return;
     var slides = Array.isArray(data.slides) ? data.slides : [];
 
-    var html = renderCoverClassic(data);
+    var html = data.notice ? '<div class="preview-notice">' + esc(data.notice) + '</div>' : '';
+    html += renderCoverClassic(data);
     html += slides.map(function (slide) {
       return renderPricingClassic(slide, data);
     }).join('');

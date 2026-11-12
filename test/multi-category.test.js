@@ -25,37 +25,37 @@ test('multi-category split acceptance numbers', () => {
   assert.equal(n.totalLicenses, 500);
   assert.equal(round2(n.all5CategoryPricePerLicense), 92.11);
 
-  assert.equal(round2(n.rows[0].costPerUser1Yr), 64.48);
-  assert.equal(round2(n.rows[0].subTotal), 19344.00);
+  assert.equal(round2(n.rows[0].costPerUser1Yr), 75.53);
+  assert.equal(round2(n.rows[0].subTotal), 22659.00);
 
-  assert.equal(round2(n.rows[1].costPerUser1Yr), 55.27);
-  assert.equal(round2(n.rows[1].subTotal), 11054.00);
+  assert.equal(round2(n.rows[1].costPerUser1Yr), 70.00);
+  assert.equal(round2(n.rows[1].subTotal), 14000.00);
 
-  assert.equal(round2(n.grandSubTotal), 30398.00);
+  assert.equal(round2(n.grandSubTotal), 36659.00);
 });
 
 // Regression guard: this is the specific bug the addendum exists to prevent. If the
 // volume index is (wrongly) computed per line item's own count instead of the
-// combined total, the grand total balloons to ~$41,641 instead of ~$30,398.
+// combined total, the grand total balloons to ~$50,435 instead of ~$36,659.
 test('regression: volume tiers must use the combined total, not each line item on its own', () => {
   const n = buildMultiCategoryProposalNumbers(multiCategoryInputs(), DEFAULT_CONFIG);
 
   assert.ok(
-    Math.abs(n.grandSubTotal - 30398.00) < 0.5,
-    `expected grandSubTotal near $30,398.00, got $${round2(n.grandSubTotal)}`
+    Math.abs(n.grandSubTotal - 36659.00) < 0.5,
+    `expected grandSubTotal near $36,659.00, got $${round2(n.grandSubTotal)}`
   );
   assert.ok(
-    Math.abs(n.grandSubTotal - 41641) > 1000,
-    'grandSubTotal is suspiciously close to the known wrong-scoped-volume total (~$41,641) — ' +
+    Math.abs(n.grandSubTotal - 50435) > 1000,
+    'grandSubTotal is suspiciously close to the known wrong-scoped-volume total (~$50,435) — ' +
       'volume index is likely being computed per line item instead of on the combined total'
   );
 });
 
 // A single-line-item deal is just this same structure with one entry, and shares
 // computeAll5CategoryBasePrice with the single-category path — so the per-license
-// price matches ($19.80), and since both paths now round every monetary figure to
+// price matches ($38.29), and since both paths now round every monetary figure to
 // cents at each step (see buildProposalNumbers' and buildMultiCategoryProposalNumbers'
-// doc comments), the grand total matches the single-category path's $15,840.00 too.
+// doc comments), the grand total matches the single-category path's $30,630.00 too.
 test('a single line item shares the per-license price and grand total with the single-category path', () => {
   const n = buildMultiCategoryProposalNumbers(
     multiCategoryInputs({
@@ -65,6 +65,6 @@ test('a single line item shares the per-license price and grand total with the s
     DEFAULT_CONFIG
   );
 
-  assert.equal(round2(n.rows[0].costPerUser1Yr), 19.8);
-  assert.equal(round2(n.grandSubTotal), 15840.00);
+  assert.equal(round2(n.rows[0].costPerUser1Yr), 38.29);
+  assert.equal(round2(n.grandSubTotal), 30630.00);
 });

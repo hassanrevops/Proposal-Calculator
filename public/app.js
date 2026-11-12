@@ -13,10 +13,164 @@
     collapseRight: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l6 6-6 6"/><path d="M13 6l6 6-6 6"/></svg>',
     calc: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="11" x2="8" y2="11.01"/><line x1="12" y1="11" x2="12" y2="11.01"/><line x1="16" y1="11" x2="16" y2="11.01"/><line x1="8" y1="15" x2="8" y2="15.01"/><line x1="12" y1="15" x2="12" y2="15.01"/><line x1="16" y1="15" x2="16" y2="15.01"/><line x1="8" y1="19" x2="8" y2="19.01"/><line x1="12" y1="19" x2="12" y2="19.01"/><line x1="16" y1="19" x2="16" y2="19.01"/></svg>',
     trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>',
+    dollar: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M14.8 9.2c-.4-.9-1.5-1.4-2.8-1.4-1.6 0-2.8.8-2.8 2 0 2.8 5.8 1.4 5.8 4.2 0 1.2-1.2 2-2.9 2-1.4 0-2.5-.6-3-1.6"/><path d="M12 6.5v1.3M12 16.2v1.3"/></svg>',
+    lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
+    chevronDown: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>',
     arrowLeft: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>',
   };
 
   window.KCIcons = ICONS;
+
+  // ---------------------------------------------------------------------
+  // Sidebar — one definition for every page. Each page just declares
+  // <aside class="sidebar" id="sidebar" data-variant="public|admin" data-nav="...">
+  // and this fills it in, so a new page or link is added in exactly one place.
+  // ---------------------------------------------------------------------
+  var APP_NAME = 'QuoteHub';
+  var NAV = {
+    public: [
+      { group: 'Proposal Generator', icon: 'document', children: [
+        { key: 'standard', href: '/index.html', icon: 'document', label: 'Standard Proposal' },
+        { key: 'holistic', href: '/multi-category.html', icon: 'layers', label: 'Holistic Calculation (Proposal)' },
+        { key: 'manual', href: '/manual.html', icon: 'edit', label: 'Manual Proposal' },
+      ] },
+      { key: 'calculator', href: '/calculator.html', icon: 'dollar', label: 'KC Pricing Calculator' },
+      { key: 'admin', href: '/admin', icon: 'settings', label: 'Admin Panel' },
+    ],
+    admin: [
+      { key: 'admin', href: '/admin', icon: 'document', label: 'Proposal Generator' },
+      { key: 'admin-calculator', href: '/admin/calculator', icon: 'dollar', label: 'KC Pricing Calculator' },
+      { key: 'admin-password', href: '/admin/password', icon: 'lock', label: 'Change Password' },
+      { key: 'back', href: '/index.html', icon: 'arrowLeft', label: 'Back to public app', separated: true },
+    ],
+  };
+
+  function navLink(item, active) {
+    var cls = (item.key === active ? 'active' : '') + (item.separated ? ' nav-separated' : '');
+    return '<a href="' + item.href + '"' + (cls.trim() ? ' class="' + cls.trim() + '"' : '') + '>' +
+      '<span class="nav-icon" data-icon="' + item.icon + '"></span><span class="nav-label">' + item.label + '</span></a>';
+  }
+
+  function renderSidebar(el) {
+    var variant = el.getAttribute('data-variant') === 'admin' ? 'admin' : 'public';
+    var active = el.getAttribute('data-nav');
+    var nav = NAV[variant].map(function (item) {
+      if (!item.group) return navLink(item, active);
+      var open = item.children.some(function (c) { return c.key === active; });
+      return '<div class="nav-group' + (open ? ' open has-active' : '') + '">' +
+        '<button type="button" class="nav-group-head"><span class="nav-icon" data-icon="' + item.icon + '"></span>' +
+        '<span class="nav-label">' + item.group + '</span><span class="nav-chevron" data-icon="chevronDown"></span></button>' +
+        '<div class="nav-sub">' + item.children.map(function (c) { return navLink(c, active); }).join('') + '</div></div>';
+    }).join('');
+    var bottom = variant === 'admin'
+      ? ''
+      : '<a class="sidebar-help-link" href="https://share.hsforms.com/2DiwtP86rQPSLpHDkiqlLDwnkjhs" target="_blank" rel="noopener"><span class="nav-icon" data-icon="help"></span><span class="nav-label">Need Help</span></a>';
+    el.innerHTML =
+      '<div class="sidebar-logo"><img src="/img/kc-icon.png" alt="">' +
+        '<span class="logo-text"><span class="logo-name">KnowledgeCity</span><span class="logo-sub">' + APP_NAME + '</span></span></div>' +
+      '<nav>' + nav + '</nav>' + bottom +
+      '<button class="sidebar-collapse-btn" id="collapseBtn"><span class="nav-icon" data-icon="collapseLeft"></span><span class="nav-label">Collapse</span></button>' +
+      '<div class="sidebar-watermark">Powered by KC RevOps</div>';
+    el.querySelectorAll('.nav-group-head').forEach(function (head) {
+      head.addEventListener('click', function () { head.parentNode.classList.toggle('open'); });
+    });
+  }
+
+  // Confidentiality footer, centered at the bottom of the page content. A page opts in
+  // with <main class="main" data-footer="confidential">.
+  var footerHost = document.querySelector('main[data-footer="confidential"]');
+  if (footerHost) {
+    var footer = document.createElement('div');
+    footer.className = 'app-footer';
+    footer.innerHTML = '<span class="pill">Confidential — Internal Use Only · KnowledgeCity ' + APP_NAME + '</span>';
+    footerHost.appendChild(footer);
+  }
+
+  var sidebarEl = document.getElementById('sidebar');
+  if (sidebarEl && sidebarEl.hasAttribute('data-nav')) renderSidebar(sidebarEl);
+
+  // ---------------------------------------------------------------------
+  // Products dropdown shared by the three proposal pages: LMS category tiers
+  // first, then every other product, grouped — all from the admin-editable catalog.
+  // ---------------------------------------------------------------------
+  var productsPromise = null;
+  var productList = [];
+  function escHtml(v) {
+    return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  window.KCProducts = {
+    load: function () {
+      if (!productsPromise) {
+        productsPromise = fetch('/products').then(function (r) { return r.json(); }).then(function (list) { productList = list; return list; });
+      }
+      return productsPromise;
+    },
+    labelFor: function (id) {
+      var m = productList.filter(function (p) { return p.id === id; })[0];
+      return m ? m.label : id;
+    },
+    optionsHtml: function () {
+      var html = '<option value="" disabled selected>Select a product</option>';
+      var groups = [];
+      productList.forEach(function (p) {
+        var g = groups.filter(function (x) { return x.name === p.group; })[0];
+        if (!g) { g = { name: p.group, items: [] }; groups.push(g); }
+        g.items.push(p);
+      });
+      groups.forEach(function (g) {
+        html += '<optgroup label="' + escHtml(g.name) + '">' + g.items.map(function (p) {
+          return '<option value="' + escHtml(p.id) + '">' + escHtml(p.label) + '</option>';
+        }).join('') + '</optgroup>';
+      });
+      return html;
+    },
+  };
+  // Requests that never throw: a network failure or a rejected value comes back as
+  // { ok: false, data: { error } } so each page can show a message instead of breaking.
+  window.KCApi = {
+    post: function (url, body) {
+      return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        .then(function (res) {
+          return res.json().catch(function () { return {}; }).then(function (data) { return { ok: res.ok, status: res.status, data: data }; });
+        })
+        .catch(function () {
+          return { ok: false, status: 0, data: { error: 'Could not reach the server. Check your connection and try again.' } };
+        });
+    },
+    // Builds the .pptx and saves it. The button is locked while it works so a double
+    // click can't produce two files.
+    download: function (url, body, name, button) {
+      var original = button ? button.textContent : '';
+      if (button) { button.disabled = true; button.textContent = 'Generating…'; }
+      var fileName = String(name || '').replace(/[\\/:*?"<>|\r\n\t]+/g, ' ').trim() || 'proposal';
+      return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        .then(function (res) {
+          if (!res.ok) {
+            return res.json().catch(function () { return {}; }).then(function (err) {
+              alert('Could not generate the proposal: ' + (err.error || 'please try again.'));
+              return false;
+            });
+          }
+          return res.blob().then(function (blob) {
+            var href = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = href; a.download = fileName + '.pptx';
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(function () { URL.revokeObjectURL(href); }, 10000);
+            return true;
+          });
+        })
+        .catch(function () {
+          alert('Could not reach the server. Check your connection and try again.');
+          return false;
+        })
+        .then(function (ok) {
+          if (button) { button.disabled = false; button.textContent = original; }
+          return ok;
+        });
+    },
+  };
+  window.KCEsc = escHtml;
 
   document.querySelectorAll('[data-icon]').forEach(function (el) {
     var name = el.getAttribute('data-icon');
@@ -35,7 +189,9 @@
       localStorage.setItem('kc-sidebar-collapsed', sidebar.classList.contains('collapsed') ? '1' : '0');
       syncCollapseIcon();
     });
-    if (localStorage.getItem('kc-sidebar-collapsed') === '1') sidebar.classList.add('collapsed');
+    // Collapsed by default on a phone-sized screen (unless the user has chosen otherwise).
+    var savedCollapse = localStorage.getItem('kc-sidebar-collapsed');
+    if (savedCollapse === '1' || (savedCollapse === null && window.innerWidth < 700)) sidebar.classList.add('collapsed');
     syncCollapseIcon();
   }
 
@@ -228,7 +384,9 @@
     }
     function formatResult(n) {
       if (!isFinite(n)) return 'Error';
-      return String(Math.round(n * 1e10) / 1e10);
+      // 12 significant digits hides floating-point noise (0.1 + 0.2 -> 0.3) without the
+      // precision loss a fixed decimal scale has on large results (999999 x 999999).
+      return String(parseFloat(n.toPrecision(12)));
     }
     function inputOperator(nextOp) {
       // Pressing an operator right after another (no digit typed yet) just swaps

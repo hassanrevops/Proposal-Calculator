@@ -2,28 +2,18 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>KnowledgeCity Proposal Generator</title>
+<title>Manual Proposal — KnowledgeCity QuoteHub</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="/styles.css?v=17">
-<script src="/preview.js?v=16" defer></script>
+<link rel="icon" type="image/png" href="/img/kc-icon.png">
+<link rel="stylesheet" href="/styles.css?v=28">
+<script src="/preview.js?v=18" defer></script>
 </head>
 <body>
 <button class="theme-toggle-fab" id="themeToggle" data-icon="moon" aria-label="Switch to dark mode"></button>
 <div class="app-shell">
-  <aside class="sidebar" id="sidebar">
-    <div class="sidebar-logo"><img src="/img/kc-icon.png" alt=""><span class="logo-text">KnowledgeCity</span></div>
-    <nav>
-      <a href="/index.html"><span class="nav-icon" data-icon="document"></span><span class="nav-label">Standard Proposal</span></a>
-      <a href="/multi-category.html"><span class="nav-icon" data-icon="layers"></span><span class="nav-label">Holistic Calculation (Proposal)</span></a>
-      <a href="/manual.html" class="active"><span class="nav-icon" data-icon="edit"></span><span class="nav-label">Manual Proposal</span></a>
-      <a href="/admin"><span class="nav-icon" data-icon="settings"></span><span class="nav-label">Admin Panel</span></a>
-    </nav>
-    <a class="sidebar-help-link" href="https://share.hsforms.com/2DiwtP86rQPSLpHDkiqlLDwnkjhs" target="_blank" rel="noopener"><span class="nav-icon" data-icon="help"></span><span class="nav-label">Need Help</span></a>
-    <button class="sidebar-collapse-btn" id="collapseBtn"><span class="nav-icon" data-icon="collapseLeft"></span><span class="nav-label">Collapse</span></button>
-    <div class="sidebar-watermark">Powered by KC RevOps</div>
-  </aside>
+  <aside class="sidebar" id="sidebar" data-variant="public" data-nav="manual"></aside>
 
-  <main class="main">
+  <main class="main" data-footer="confidential">
     <div class="hero">
       <div class="hero-badge">KnowledgeCity</div>
       <h1>Manual Proposal</h1>
@@ -93,7 +83,7 @@
   </div>
 </div>
 
-<script src="/app.js?v=14"></script>
+<script src="/app.js?v=27"></script>
 <script>
 (function () {
   'use strict';
@@ -120,20 +110,12 @@
       '<div class="slide-card-badge">Slide ' + (n + 1) + ' pricing</div>' +
       '<div class="row">' +
         '<div class="field"><label>Number of licenses</label><input type="number" class="f-licenses" min="1" placeholder="e.g. 100"></div>' +
-        '<div class="field"><label>Category tier</label>' +
-          '<select class="f-categoryTier" required>' +
-            '<option value="" disabled selected>Select category tier</option>' +
-            '<option value="all5">All 5 Categories</option>' +
-            '<option value="4cat">4 Categories</option>' +
-            '<option value="3cat">3 Categories</option>' +
-            '<option value="2cat">2 Categories</option>' +
-            '<option value="1cat">1 Category</option>' +
-            '<option value="1to2courses">1-2 Courses</option>' +
-          '</select>' +
+        '<div class="field"><label>Products</label>' +
+          '<select class="f-categoryTier" required>' + KCProducts.optionsHtml() + '</select>' +
         '</div>' +
         '<div class="field"><label>Special discount %</label><input type="number" class="f-specialDiscountPct" min="0" max="99" step="0.01" placeholder="0"></div>' +
       '</div>' +
-      '<div class="hint" style="margin-bottom:1rem;">Filling in licenses, category tier, and special discount auto-calculates the fields below — every one of them stays editable if you need to override the engine\'s numbers.</div>' +
+      '<div class="hint" style="margin-bottom:1rem;">Filling in licenses, product, and special discount auto-calculates the fields below — every one of them stays editable if you need to override the engine\'s numbers.</div>' +
       '<div class="row">' +
         '<div class="field"><label>Category label (optional override)</label><input type="text" class="f-categoryDisplayLabel" placeholder="e.g. 3 Categories"></div>' +
       '</div>' +
@@ -165,26 +147,29 @@
   async function calculateRow(licenses, categoryTier, specialDiscountPct) {
     var key = JSON.stringify([licenses, categoryTier, specialDiscountPct]);
     if (calcCache.has(key)) return calcCache.get(key);
-    var res = await fetch('/calculate-row', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ licenses: licenses, categoryTier: categoryTier, specialDiscountPct: specialDiscountPct, nonProfit: false }),
-    });
-    var data = await res.json();
-    calcCache.set(key, data);
-    return data;
+    var r = await KCApi.post('/calculate-row', { licenses: licenses, categoryTier: categoryTier, specialDiscountPct: specialDiscountPct, nonProfit: false });
+    if (r.status > 0) calcCache.set(key, r.data); // a dropped connection isn't remembered
+    return r.data;
   }
 
   // Filling in licenses + category tier + special discount auto-fills the
   // calculated fields with the engine's defaults — but those fields stay plain
   // editable inputs, so typing into them directly overrides the default and
   // sticks until the next time one of the three trigger fields changes.
+  var lastCalcError = null; // shown above the preview when a typed value is rejected
   async function autoCalcSlide(card) {
-    var licenses = Number(card.querySelector('.f-licenses').value);
+    var licenses = Math.floor(Number(card.querySelector('.f-licenses').value));
     var categoryTier = card.querySelector('.f-categoryTier').value;
     var discountPct = Number(card.querySelector('.f-specialDiscountPct').value) || 0;
     if (!licenses || !categoryTier) return;
 
     var data = await calculateRow(licenses, categoryTier, discountPct);
+    if (data.error) {
+      lastCalcError = data.error;
+      scheduleRecalc();
+      return;
+    }
+    lastCalcError = null;
     card.querySelector('.f-costPerUser1Yr').value = data.costPerUser1Yr;
     card.querySelector('.f-afterDiscountCostPerUser').value = data.afterDiscountCostPerUser;
     card.querySelector('.f-subTotal').value = data.subTotal;
@@ -220,11 +205,11 @@
   document.getElementById('addSlideBtn').addEventListener('click', addSlide);
 
   function buildSlideFromCard(card) {
-    var licenses = Number(card.querySelector('.f-licenses').value);
+    var licenses = Math.floor(Number(card.querySelector('.f-licenses').value));
     var costPerUser1Yr = Number(card.querySelector('.f-costPerUser1Yr').value) || 0;
     var afterDiscountCostPerUser = Number(card.querySelector('.f-afterDiscountCostPerUser').value) || 0;
     var subTotal = Number(card.querySelector('.f-subTotal').value) || 0;
-    if (!licenses || !subTotal) return null;
+    if (!licenses || licenses < 1 || !subTotal || subTotal < 0) return null;
 
     var multiYearPct = {
       '2yr': Number(card.querySelector('.f-pct2yr').value) || 0,
@@ -263,6 +248,7 @@
       proposalDate: document.getElementById('proposalDate').value,
       currencySymbol: currencySymbolFor(document.getElementById('currencyCode').value),
       slides: slides,
+      notice: lastCalcError,
     });
   }
 
@@ -270,7 +256,7 @@
   form.addEventListener('input', scheduleRecalc);
   form.addEventListener('change', scheduleRecalc);
 
-  addSlide();
+  window.addEventListener('DOMContentLoaded', function () { KCProducts.load().then(function () { addSlide(); }); });
 
   form.addEventListener('submit', async function (e) {
     e.preventDefault();
@@ -279,25 +265,12 @@
       alert('Fill in at least one pricing slide (licenses and Sub-Total) before generating.');
       return;
     }
-    var res = await fetch('/generate-manual', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        companyName: document.getElementById('companyName').value,
-        proposalDate: document.getElementById('proposalDate').value,
-        currencyCode: document.getElementById('currencyCode').value,
-        slides: slides,
-      }),
-    });
-    if (!res.ok) {
-      var err = await res.json().catch(function () { return {}; });
-      alert('Could not generate proposal: ' + (err.error || res.statusText));
-      return;
-    }
-    var blob = await res.blob();
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement('a');
-    a.href = url; a.download = (document.getElementById('companyName').value || 'proposal') + '.pptx';
-    a.click();
+    await KCApi.download('/generate-manual', {
+      companyName: document.getElementById('companyName').value,
+      proposalDate: document.getElementById('proposalDate').value,
+      currencyCode: document.getElementById('currencyCode').value,
+      slides: slides,
+    }, document.getElementById('companyName').value, form.querySelector('button[type="submit"]'));
   });
 })();
 </script>
